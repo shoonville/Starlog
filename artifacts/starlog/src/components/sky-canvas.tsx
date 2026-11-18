@@ -57,6 +57,42 @@ function segDist(px: number, py: number, ax: number, ay: number, bx: number, by:
   return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
 }
 
+type Rect = { left: number; top: number; right: number; bottom: number };
+
+/** Return portions of a line segment that do not pass through any exclusion rectangle. */
+function lineOutsideRects(ax: number, ay: number, bx: number, by: number, rects: Rect[]) {
+  const dx = bx - ax, dy = by - ay;
+  const cuts: Array<[number, number]> = [];
+  for (const r of rects) {
+    let enter = 0, exit = 1;
+    for (const [origin, delta, min, max] of [[ax, dx, r.left, r.right], [ay, dy, r.top, r.bottom]] as const) {
+      if (Math.abs(delta) < 0.00001) {
+        if (origin < min || origin > max) { enter = 1; exit = 0; break; }
+      } else {
+        const a = (min - origin) / delta, b = (max - origin) / delta;
+        enter = Math.max(enter, Math.min(a, b));
+        exit = Math.min(exit, Math.max(a, b));
+      }
+    }
+    if (enter < exit && exit > 0 && enter < 1) cuts.push([Math.max(0, enter), Math.min(1, exit)]);
+  }
+  cuts.sort((a, b) => a[0] - b[0]);
+  const merged: Array<[number, number]> = [];
+  for (const cut of cuts) {
+    const last = merged[merged.length - 1];
+    if (last && cut[0] <= last[1]) last[1] = Math.max(last[1], cut[1]);
+    else merged.push([...cut]);
+  }
+  const visible: Array<[number, number, number, number]> = [];
+  let from = 0;
+  for (const [start, end] of merged) {
+    if (start > from) visible.push([ax + dx * from, ay + dy * from, ax + dx * start, ay + dy * start]);
+    from = Math.max(from, end);
+  }
+  if (from < 1) visible.push([ax + dx * from, ay + dy * from, bx, by]);
+  return visible;
+}
+
 const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const P = useRef(props);
@@ -127,6 +163,8 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
+    const connectionStarted = new Map<number, number>();
+    let connectionsInitialized = false;
 
     const local = (e: { clientX: number; clientY: number }) => {
       const r = canvas.getBoundingClientRect();
@@ -211,7 +249,7 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
       s.flying = false;
       const hit = hitStar(x, y, e.pointerType);
       if (hit) {
-        if (hit.ring) {
+        if (hit.ring && !P.current.connectMode) {
           s.g = { kind: "link", id: hit.id, sx: x, sy: y };
           s.link = { id: hit.id, sx: x, sy: y, target: null };
         } else {
@@ -223,7 +261,7 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
         return;
       }
       s.g = { kind: "empty", sx: x, sy: y, moved: false, lastX: x, lastY: y, lastT: performance.now() };
-      if (e.pointerType !== "mouse") {
+      if (e.pointerType !== "mouse" && !P.current.connectMode) {
         s.longTimer = window.setTimeout(() => {
           const g = s.g;
           if (g.kind === "empty" && !g.moved) {
@@ -320,6 +358,10 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
           return;
         }
         if (e.type === "pointercancel") return;
+        if (P.current.connectMode) {
+          P.current.onBackground();
+          return;
+        }
         const lid = P.current.connectMode ? null : hitLine(x, y);
         if (lid != null) {
           s.hoverLine = null;
@@ -532,40 +574,92 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
         scr.set(st.id, toScreen(q.x, q.y));
       }
 
+      const nameLabels: Array<{ text: string; x: number; y: number; alpha: number; rect: Rect }> = [];
+      ctx.font = "400 11px Inter, ui-sans-serif, sans-serif";
+      for (const cv of p.constellations) {
+        let sx = 0, sy = 0, maxY = -Infinity, al = 0, n = 0;
+        for (const id of cv.members) {
+          const q = scr.get(id), a = s.anim.get(id);
+          if (!q || !a) continue;
+          sx += q.x;
+          sy += q.y;
+          n++;
+          al += a.a * a.dim;
+          if (q.y > maxY) maxY = q.y;
+        }
+        if (n < 2) continue;
+        al /= n;
+        const text = cv.name.toUpperCase().split("").join("\u200A");
+        const x = sx / n;
+        const y = Math.min(maxY + 30, sy / n + 90 * Math.min(z, 1.4));
+        const half = ctx.measureText(text).width / 2 + 6;
+        nameLabels.push({
+          text,
+          x,
+          y,
+          alpha: 0.42 * al,
+          rect: { left: x - half, right: x + half, top: y - 3, bottom: y + 17 },
+        });
+      }
+      const labelRects = nameLabels.map((l) => l.rect);
+
       // connections
       ctx.lineCap = "round";
+      const connectionIds = new Set(p.connections.map((c) => c.id));
+      if (!connectionsInitialized) {
+        for (const c of p.connections) connectionStarted.set(c.id, now - 1000);
+        connectionsInitialized = true;
+      } else {
+        for (const c of p.connections) if (!connectionStarted.has(c.id)) connectionStarted.set(c.id, now);
+      }
+      for (const id of connectionStarted.keys()) if (!connectionIds.has(id)) connectionStarted.delete(id);
       for (const c of p.connections) {
         const pa = scr.get(c.fromStarId), pb = scr.get(c.toStarId);
         const aa = s.anim.get(c.fromStarId), ab = s.anim.get(c.toStarId);
         if (!pa || !pb || !aa || !ab) continue;
         const al = Math.min(aa.a, ab.a) * Math.min(aa.dim, ab.dim);
         if (al < 0.01) continue;
+        const linearProgress = Math.max(0, Math.min(1, (now - (connectionStarted.get(c.id) ?? now)) / 850));
+        const progress = 1 - Math.pow(1 - linearProgress, 3);
+        const endX = pa.x + (pb.x - pa.x) * progress;
+        const endY = pa.y + (pb.y - pa.y) * progress;
+        const segments = lineOutsideRects(pa.x, pa.y, endX, endY, labelRects);
         const hov = s.hoverLine === c.id;
         // Lines touching a hovered star glow softly (eased via the star's hover value).
         const glow = p.connectMode || s.link ? 0 : Math.max(aa.hover, ab.hover);
         if (glow > 0.02 && !hov) {
           ctx.strokeStyle = `rgba(244,224,196,${0.09 * glow * al})`;
           ctx.lineWidth = 6;
-          ctx.beginPath();
-          ctx.moveTo(pa.x, pa.y);
-          ctx.lineTo(pb.x, pb.y);
-          ctx.stroke();
+          for (const [x1, y1, x2, y2] of segments) {
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+          }
           ctx.strokeStyle = `rgba(244,224,196,${0.16 * glow * al})`;
           ctx.lineWidth = 3;
-          ctx.stroke();
+          for (const [x1, y1, x2, y2] of segments) {
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+          }
         }
         ctx.strokeStyle = hov
           ? `rgba(244,214,190,${0.75 * al})`
           : glow > 0.02
             ? `rgba(${Math.round(214 + 30 * glow)},${Math.round(200 + 24 * glow)},${Math.round(250 - 54 * glow)},${(0.24 + 0.4 * glow) * al})`
-            : `rgba(214,200,250,${0.24 * al})`;
+            : `rgba(214,200,250,${(0.24 + (1 - progress) * 0.15) * al})`;
         ctx.lineWidth = hov ? 1.6 : 1 + 0.3 * glow;
-        ctx.beginPath();
-        ctx.moveTo(pa.x, pa.y);
-        ctx.lineTo(pb.x, pb.y);
-        ctx.stroke();
+        for (const [x1, y1, x2, y2] of segments) {
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
+          ctx.stroke();
+        }
         if (hov) {
           const mx = (pa.x + pb.x) / 2, my = (pa.y + pb.y) / 2;
+          if (labelRects.some((r) => mx >= r.left && mx <= r.right && my >= r.top && my <= r.bottom)) continue;
           ctx.fillStyle = "rgba(30,22,52,0.9)";
           ctx.strokeStyle = "rgba(244,214,190,0.7)";
           ctx.lineWidth = 1;
@@ -591,10 +685,12 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
           ctx.setLineDash([3, 5]);
           ctx.strokeStyle = "rgba(244,224,196,0.55)";
           ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(a.x, a.y);
-          ctx.lineTo(tx, ty);
-          ctx.stroke();
+          for (const [x1, y1, x2, y2] of lineOutsideRects(a.x, a.y, tx, ty, labelRects)) {
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+          }
           ctx.setLineDash([]);
         }
       }
@@ -648,23 +744,10 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
         ctx.fillText(title, q.x, q.y + visR(st.id) + 9);
       }
 
-      // constellation names
-      ctx.font = "400 11px Inter, ui-sans-serif, sans-serif";
-      for (const cv of p.constellations) {
-        let sx = 0, sy = 0, maxY = -Infinity, al = 0, n = 0;
-        for (const id of cv.members) {
-          const q = scr.get(id), a = s.anim.get(id);
-          if (!q || !a) continue;
-          sx += q.x; sy += q.y; n++;
-          al += a.a * a.dim;
-          if (q.y > maxY) maxY = q.y;
-        }
-        if (n < 2) continue;
-        al /= n;
-        const cx = sx / n;
-        const cy = Math.min(maxY + 30, sy / n + 90 * Math.min(z, 1.4));
-        ctx.fillStyle = `rgba(206,192,240,${0.42 * al})`;
-        ctx.fillText(cv.name.toUpperCase().split("").join("\u200A"), cx, cy);
+      // Names are drawn over a clear gap: connection strokes are clipped around each label.
+      for (const label of nameLabels) {
+        ctx.fillStyle = `rgba(206,192,240,${label.alpha})`;
+        ctx.fillText(label.text, label.x, label.y);
       }
     };
     raf = requestAnimationFrame(loop);

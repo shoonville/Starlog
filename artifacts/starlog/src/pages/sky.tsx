@@ -31,16 +31,62 @@ function useNarrow() {
 
 function ToolButton({ label, kbd, active, onClick, children, testId }: { label: string; kbd?: string; active?: boolean; onClick: () => void; children: React.ReactNode; testId: string }) {
   return (
-    <Tip label={label} kbd={kbd}>
-        <button
-          onClick={onClick}
-          aria-label={label}
-          className={`flex h-9 w-9 items-center justify-center rounded-full transition-all duration-500 soft-ease ${active ? "bg-primary/90 text-primary-foreground" : "text-muted-foreground hover:bg-white/[0.07] hover:text-foreground"}`}
-          data-testid={testId}
-        >
-          {children}
-        </button>
-    </Tip>
+    <TouchHint label={label}>
+      <Tip label={label} kbd={kbd}>
+          <button
+            onClick={onClick}
+            aria-label={label}
+            className={`flex h-9 w-9 items-center justify-center rounded-full transition-all duration-500 soft-ease ${active ? "bg-primary/90 text-primary-foreground" : "text-muted-foreground hover:bg-white/[0.07] hover:text-foreground"}`}
+            data-testid={testId}
+          >
+            {children}
+          </button>
+      </Tip>
+    </TouchHint>
+  );
+}
+
+/** Touch users get the same short label as desktop tooltips, shown on a long press. */
+function TouchHint({ label, children }: { label: string; children: React.ReactNode }) {
+  const [visible, setVisible] = useState(false);
+  const holdTimer = useRef<number>(0);
+  const hideTimer = useRef<number>(0);
+  const clear = () => {
+    window.clearTimeout(holdTimer.current);
+    window.clearTimeout(hideTimer.current);
+  };
+  useEffect(() => () => clear(), []);
+  return (
+    <span
+      className="relative inline-flex"
+      onPointerDown={(e) => {
+        if (e.pointerType !== "touch") return;
+        clear();
+        holdTimer.current = window.setTimeout(() => setVisible(true), 420);
+      }}
+      onPointerUp={(e) => {
+        if (e.pointerType !== "touch") return;
+        window.clearTimeout(holdTimer.current);
+        hideTimer.current = window.setTimeout(() => setVisible(false), 1100);
+      }}
+      onPointerCancel={() => { clear(); setVisible(false); }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {children}
+      <AnimatePresence>
+        {visible && (
+          <motion.span
+            initial={{ opacity: 0, y: 4, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 3 }}
+            className="tip-soft pointer-events-none absolute bottom-[calc(100%+9px)] left-1/2 z-[70] -translate-x-1/2 whitespace-nowrap rounded-lg px-2.5 py-1 text-[11.5px] text-foreground"
+            role="status"
+          >
+            {label}
+          </motion.span>
+        )}
+      </AnimatePresence>
+    </span>
   );
 }
 
@@ -99,6 +145,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
   const [recentOpen, setRecentOpen] = useState(false);
   const [focusNote, setFocusNote] = useState<{ starId: number; noteId: number } | null>(null);
   const [devOpen, setDevOpen] = useState(() => new URLSearchParams(window.location.search).has("dev"));
+  const [sheetHeight, setSheetHeight] = useState<"full" | "half">("full");
   const sleepTimer = useRef<number>(0);
   const legendRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -126,6 +173,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
   const roots = useMemo(() => componentRoots(sky.stars, sky.connections), [sky.stars, sky.connections]);
   const cviews = useMemo(() => constellationViews(sky.stars, sky.connections, sky.constellations, roots), [sky.stars, sky.connections, sky.constellations, roots]);
   const selected = sky.stars.find((s) => s.id === selectedId) ?? null;
+  useEffect(() => { setSheetHeight("full"); }, [selectedId]);
 
   const highlight = useMemo(() => {
     if (searchOpen && searchIds) return searchIds;
@@ -166,10 +214,12 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
   const onStarTap = (id: number) => {
     if (connectMode) {
       if (connectFrom == null) setConnectFrom(id);
-      else if (connectFrom === id) setConnectFrom(null);
+      else if (connectFrom === id) return;
       else {
         actions.connect(connectFrom, id);
-        setConnectFrom(id);
+        setConnectMode(false);
+        setConnectFrom(null);
+        focusStar(id);
       }
       return;
     }
@@ -237,7 +287,10 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
         connectFrom={connectFrom}
         cutoff={cutoff}
         onStarTap={onStarTap}
-        onBackground={() => { setSelectedId(null); if (connectMode) setConnectFrom(null); }}
+        onBackground={() => {
+          if (connectMode) { setConnectMode(false); setConnectFrom(null); }
+          else setSelectedId(null);
+        }}
         onCreateAt={createAt}
         onMove={actions.moveStar}
         onConnect={actions.connect}
@@ -267,10 +320,10 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
       <AnimatePresence>
         {connectMode && (
           <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.6, ease: EASE }}
-            className={`absolute left-1/2 z-10 -translate-x-1/2 ${sky.isDemo ? "top-16 max-md:top-24" : "top-5"}`}>
+            className={`absolute left-1/2 z-10 -translate-x-1/2 ${sky.isDemo ? "top-16 max-md:top-[8.5rem]" : "top-5"}`}>
             <div className="sky-pill rounded-full px-4 py-1.5 text-[12px] text-foreground/90" data-testid="text-connect-hint">
-              {connectFrom == null ? "Choose a star to begin a line" : "Now choose the star to connect"}
-              <button className="ml-3 text-muted-foreground hover:text-foreground" onClick={() => { setConnectMode(false); setConnectFrom(null); }}>Done</button>
+              {connectFrom == null ? "Choose a star to begin a line" : "Tap another star to connect"}
+              <button className="ml-3 text-muted-foreground hover:text-foreground" onClick={() => { setConnectMode(false); setConnectFrom(null); }}>Cancel</button>
             </div>
           </motion.div>
         )}
@@ -365,15 +418,18 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
           ) : (
             <motion.div key="tb" className="flex justify-center" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }} transition={{ duration: 0.9, ease: EASE }}>
               <div ref={toolbarRef} style={{ pointerEvents: "auto" }} onPointerEnter={wake} className={`sky-dock flex items-center gap-0.5 rounded-full p-1.5 ${toolbarVisible ? "" : "dock-asleep"}`} data-testid="toolbar">
-                <button onClick={createAtCenter} disabled={actions.creating} className="mr-1 flex h-9 items-center gap-1.5 rounded-full bg-primary px-4 text-[13px] font-medium text-primary-foreground transition-all duration-500 soft-ease hover:brightness-105 disabled:opacity-60" data-testid="button-new-star">
-                  <Plus className="h-4 w-4" /> New Star
-                </button>
+                <TouchHint label="New star">
+                  <button onClick={createAtCenter} disabled={actions.creating} className="mr-1 flex h-9 items-center gap-1.5 rounded-full bg-primary px-4 text-[13px] font-medium text-primary-foreground transition-all duration-500 soft-ease hover:brightness-105 disabled:opacity-60" data-testid="button-new-star">
+                    <Plus className="h-4 w-4" /> New Star
+                  </button>
+                </TouchHint>
                 <ToolButton label="Connect stars" active={connectMode} onClick={() => { setConnectMode((v) => !v); setConnectFrom(null); setSelectedId(null); }} testId="button-connect-mode"><Link2 className="h-4 w-4" /></ToolButton>
                 <ToolButton label="Recent stars" kbd="R" active={recentOpen} onClick={() => setRecentOpen((v) => !v)} testId="button-recent"><Clock className="h-4 w-4" /></ToolButton>
                 <ToolButton label="Search" kbd="/" active={searchOpen} onClick={() => setSearchOpen((v) => !v)} testId="button-search"><Search className="h-4 w-4" /></ToolButton>
                 <ToolButton label="Timeline" onClick={() => { setSelectedId(null); setConnectMode(false); setTimelineOpen(true); }} testId="button-timeline"><ChartNoAxesGantt className="h-4 w-4" /></ToolButton>
                 {!narrow && <ToolButton label="Zoom out" onClick={() => canvas.current?.zoomBy(0.75)} testId="button-zoom-out"><ZoomOut className="h-4 w-4" /></ToolButton>}
                 {!narrow && <ToolButton label="Zoom in" onClick={() => canvas.current?.zoomBy(1.33)} testId="button-zoom-in"><ZoomIn className="h-4 w-4" /></ToolButton>}
+                <TouchHint label="Export journal">
                 <DropdownMenu>
                   <Tip label="Export journal">
                   <DropdownMenuTrigger asChild>
@@ -392,6 +448,8 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                </TouchHint>
+                <TouchHint label="Your sky and shortcuts">
                 <Popover>
                   <Tip label="Your sky and shortcuts">
                   <PopoverTrigger asChild>
@@ -421,6 +479,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
                     )}
                   </PopoverContent>
                 </Popover>
+                </TouchHint>
               </div>
             </motion.div>
           )}
@@ -437,10 +496,21 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
             exit={narrow ? { y: "100%", opacity: 0.4 } : { x: 24, opacity: 0, scale: 0.985 }}
             transition={{ duration: 0.65, ease: EASE }}
             className={narrow
-              ? "absolute inset-x-2 bottom-2 z-30 h-[58dvh]"
+              ? `absolute inset-x-0 bottom-0 z-30 ${sheetHeight === "full" ? "h-[90dvh]" : "h-[50dvh]"}`
               : "absolute bottom-6 right-6 top-6 z-30 w-[400px]"}
           >
-            <JournalCard star={selected} sky={sky} roots={roots} actions={actions} onClose={() => { setSelectedId(null); setFocusNote(null); }} focusNoteId={focusNote?.starId === selected.id ? focusNote.noteId : null} />
+            <JournalCard
+              star={selected}
+              sky={sky}
+              roots={roots}
+              actions={actions}
+              onClose={() => { setSelectedId(null); setFocusNote(null); }}
+              onStartConnect={(id) => { setSelectedId(null); setFocusNote(null); setConnectFrom(id); setConnectMode(true); }}
+              sheetHeight={sheetHeight}
+              onSheetHeightChange={setSheetHeight}
+              narrow={narrow}
+              focusNoteId={focusNote?.starId === selected.id ? focusNote.noteId : null}
+            />
           </motion.div>
         )}
       </AnimatePresence>

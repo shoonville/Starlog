@@ -11,7 +11,7 @@ import {
   type Sky,
   type Star,
 } from "@workspace/api-client-react";
-import { Bold, Check, Italic, List, Plus, Trash2, X } from "lucide-react";
+import { Bold, Check, ChevronDown, Italic, Link2, List, MoreHorizontal, Plus, Search, Trash2, X } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,6 +26,8 @@ import { DEFAULT_STAR, PALETTE, formatStamp } from "@/lib/sky";
 import { FormattedNote, applyFormat, formatKeyDown, wordCount, type FormatKind } from "@/lib/note-format";
 import { scheduleDelete, usePendingDeletes } from "@/lib/pending-deletes";
 import type { SkyActions } from "@/hooks/use-sky-actions";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 function autosize(el: HTMLTextAreaElement | null) {
   if (!el) return;
@@ -176,11 +178,15 @@ type Props = {
   roots: Map<number, number>;
   actions: SkyActions;
   onClose: () => void;
+  onStartConnect: (starId: number) => void;
+  sheetHeight: "full" | "half";
+  onSheetHeightChange: (height: "full" | "half") => void;
+  narrow: boolean;
   /** A note to scroll to and briefly highlight (e.g. from "On this day"). */
   focusNoteId?: number | null;
 };
 
-export default function JournalCard({ star, sky, roots, actions, onClose, focusNoteId }: Props) {
+export default function JournalCard({ star, sky, roots, actions, onClose, onStartConnect, sheetHeight, onSheetHeightChange, narrow, focusNoteId }: Props) {
   const qc = useQueryClient();
   const notesKey = getListStarNotesQueryKey(star.id);
   const notesQ = useListStarNotes(star.id, { query: { enabled: !!star.id, queryKey: notesKey } });
@@ -204,9 +210,48 @@ export default function JournalCard({ star, sky, roots, actions, onClose, focusN
   }, [star.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [draft, setDraft] = useState("");
+  const [composerOpen, setComposerOpen] = useState(() => !window.matchMedia("(max-width: 767px)").matches);
+  const composerExpanded = !narrow || composerOpen;
   const draftRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => autosize(draftRef.current), [draft]);
   const listEnd = useRef<HTMLDivElement>(null);
+  const scrolledStar = useRef<number | null>(null);
+  useEffect(() => {
+    if (focusNoteId != null || !notesQ.data || scrolledStar.current === star.id) return;
+    scrolledStar.current = star.id;
+    if (window.matchMedia("(max-width: 767px)").matches) {
+      const t = window.setTimeout(() => listEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" }), 100);
+      return () => clearTimeout(t);
+    }
+    return undefined;
+  }, [star.id, notesQ.data, focusNoteId]);
+
+  const sheetStartY = useRef<number | null>(null);
+  const onSheetHandleDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === "mouse") return;
+    sheetStartY.current = e.clientY;
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onSheetHandleUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (sheetStartY.current == null) return;
+    const dy = e.clientY - sheetStartY.current;
+    sheetStartY.current = null;
+    if (dy > 60) {
+      if (sheetHeight === "full" && dy < 180) onSheetHeightChange("half");
+      else onClose();
+    } else if (dy < -60) {
+      onSheetHeightChange("full");
+    }
+  };
+  const [connectPickerOpen, setConnectPickerOpen] = useState(false);
+  const [connectQuery, setConnectQuery] = useState("");
+  const connectableStars = useMemo(() => {
+    const connected = new Set(sky.connections.flatMap((c) => c.fromStarId === star.id ? [c.toStarId] : c.toStarId === star.id ? [c.fromStarId] : []));
+    const q = connectQuery.trim().toLocaleLowerCase();
+    return sky.stars
+      .filter((candidate) => candidate.id !== star.id && !connected.has(candidate.id) && (!q || candidate.title.toLocaleLowerCase().includes(q)))
+      .sort((a, b) => a.title.localeCompare(b.title));
+  }, [sky.stars, sky.connections, star.id, connectQuery]);
 
   const pendingDeletes = usePendingDeletes();
 
@@ -221,6 +266,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose, focusN
           actions.touchStar(star.id, 1);
           qc.invalidateQueries({ queryKey: getGetSkyStatsQueryKey() });
           setDraft("");
+          setComposerOpen(false);
           window.setTimeout(() => listEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" }), 60);
         },
       },
@@ -246,6 +292,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose, focusN
 
   // labels
   const [newLabel, setNewLabel] = useState<{ name: string; color: string } | null>(null);
+  const [labelPickerOpen, setLabelPickerOpen] = useState(false);
   const label = sky.labels.find((l) => l.id === star.labelId) ?? null;
 
   // constellation
@@ -280,8 +327,19 @@ export default function JournalCard({ star, sky, roots, actions, onClose, focusN
 
   return (
     <div className="sky-glass flex h-full max-h-full flex-col overflow-hidden rounded-[22px]" data-testid="card-journal">
-      <div className="flex items-start gap-3 px-6 pb-3 pt-6">
-        <span className="mt-[11px] h-2.5 w-2.5 shrink-0 rounded-full transition-colors duration-700" style={{ background: dot, boxShadow: `0 0 14px ${dot}` }} />
+      <div
+        className="relative flex items-start gap-3 px-5 pb-3 pt-5 md:px-6 md:pt-6"
+      >
+        <div
+          className="absolute left-1/2 top-2.5 z-10 hidden h-4 w-12 -translate-x-1/2 touch-none items-center justify-center max-md:flex"
+          onPointerDown={onSheetHandleDown}
+          onPointerUp={onSheetHandleUp}
+          onPointerCancel={() => { sheetStartY.current = null; }}
+          data-testid="sheet-drag-handle"
+        >
+          <span className="h-1 w-10 rounded-full bg-white/20" />
+        </div>
+        <span className="mt-[11px] h-2.5 w-2.5 shrink-0 transition-colors duration-700" style={{ background: dot, boxShadow: `0 0 14px ${dot}` }} />
         <input
           value={title}
           onChange={(e) => {
@@ -296,46 +354,118 @@ export default function JournalCard({ star, sky, roots, actions, onClose, focusN
           className="quiet-input min-w-0 flex-1 text-[21px] font-medium tracking-[-0.015em] text-foreground"
           data-testid="input-star-title"
         />
-        <button onClick={onClose} className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground" aria-label="Close" data-testid="button-close-card">
+        <button
+          onClick={() => onStartConnect(star.id)}
+          className="mt-1 hidden h-8 shrink-0 items-center gap-1.5 rounded-full border border-white/10 px-2.5 text-[11.5px] text-muted-foreground hover:bg-white/[0.06] hover:text-foreground max-md:flex"
+          aria-label="Connect this star"
+          data-testid="button-connect-from-card"
+        >
+          <Link2 className="h-3.5 w-3.5" /><span>Connect</span>
+        </button>
+        <Popover open={connectPickerOpen} onOpenChange={setConnectPickerOpen}>
+          <PopoverTrigger asChild>
+            <button
+              className="mt-1 hidden h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 text-muted-foreground hover:bg-white/[0.06] hover:text-foreground max-md:flex"
+              aria-label="Connect to another star"
+              data-testid="button-connect-to"
+            >
+              <Search className="h-3.5 w-3.5" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent side="bottom" align="end" className="sky-glass w-[min(20rem,84vw)] rounded-2xl border-0 p-2.5">
+            <div className="mb-2 flex items-center gap-2 rounded-xl bg-white/[0.05] px-3 py-2">
+              <Search className="h-3.5 w-3.5 text-muted-foreground/70" />
+              <input
+                autoFocus
+                value={connectQuery}
+                onChange={(e) => setConnectQuery(e.target.value)}
+                placeholder="Connect to…"
+                aria-label="Search stars to connect"
+                className="quiet-input min-w-0 flex-1 text-[13px]"
+                data-testid="input-connect-search"
+              />
+            </div>
+            <ul className="thin-scroll max-h-52 overflow-y-auto">
+              {connectableStars.length ? connectableStars.map((candidate) => (
+                <li key={candidate.id}>
+                  <button
+                    onClick={() => { actions.connect(star.id, candidate.id); setConnectPickerOpen(false); setConnectQuery(""); }}
+                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[13px] text-foreground/85 hover:bg-white/[0.06] hover:text-foreground"
+                    data-testid={`button-connect-star-${candidate.id}`}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: candidate.labelId == null ? DEFAULT_STAR : sky.labels.find((l) => l.id === candidate.labelId)?.color ?? DEFAULT_STAR }} />
+                    <span className="truncate">{candidate.title}</span>
+                  </button>
+                </li>
+              )) : <li className="px-3 py-3 text-[12px] text-muted-foreground/75">{connectQuery ? "No matching stars." : "All other stars are already connected."}</li>}
+            </ul>
+          </PopoverContent>
+        </Popover>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="mt-1 hidden rounded-full p-1.5 text-muted-foreground/75 hover:bg-white/5 hover:text-foreground max-md:block" aria-label="More star actions" data-testid="button-star-menu">
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="sky-glass min-w-36 rounded-xl border-0 p-1.5">
+            <DropdownMenuItem
+              onSelect={() => setConfirm(true)}
+              className="rounded-lg text-[13px] text-[hsl(350_62%_78%)] focus:text-[hsl(350_62%_78%)]"
+              data-testid="menu-delete-star"
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Delete star
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <button onClick={onClose} className="mt-1 rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground" aria-label="Close" data-testid="button-close-card">
           <X className="h-4 w-4" />
         </button>
       </div>
-
       <div className="px-6 pb-4 text-[11.5px] text-muted-foreground/80">
         Lit {formatStamp(star.createdAt)} · {star.noteCount} {star.noteCount === 1 ? "note" : "notes"}
       </div>
 
       {/* label picker */}
-      <div className="flex flex-wrap items-center gap-1.5 px-6 pb-4">
-        <button
-          onClick={() => actions.setStarLabel(star.id, null)}
-          className={`rounded-full px-2.5 py-1 text-[12px] transition-all duration-300 ${star.labelId == null ? "bg-white/10 text-foreground" : "text-muted-foreground hover:bg-white/5"}`}
-          data-testid="button-label-none"
-        >
-          Unlabeled
-        </button>
-        {sky.labels.map((l) => (
-          <button
-            key={l.id}
-            onClick={() => actions.setStarLabel(star.id, l.id)}
-            className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] transition-all duration-300 ${star.labelId === l.id ? "bg-white/10 text-foreground" : "text-muted-foreground hover:bg-white/5"}`}
-            data-testid={`button-label-${l.id}`}
-          >
-            <span className="h-2 w-2 rounded-full" style={{ background: l.color }} />
-            {l.name}
-          </button>
-        ))}
-        {!newLabel && (
-          <button
-            onClick={() => setNewLabel({ name: "", color: PALETTE[sky.labels.length % PALETTE.length].hex })}
-            className="flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] text-muted-foreground/80 hover:bg-white/5 hover:text-foreground"
-            data-testid="button-new-label-inline"
-          >
-            <Plus className="h-3 w-3" /> Label
-          </button>
-        )}
-        {newLabel && (
-          <div className="mt-2 w-full rounded-xl bg-white/[0.04] p-3">
+      <div className="px-5 pb-3 md:px-6 md:pb-4">
+        {narrow ? <Popover open={labelPickerOpen} onOpenChange={setLabelPickerOpen}>
+          <PopoverTrigger asChild>
+            <button className="flex items-center gap-2 rounded-full border border-white/[0.09] bg-white/[0.045] px-3 py-1.5 text-[12px] text-foreground/85 transition-colors hover:bg-white/[0.08]" data-testid="button-current-label">
+              <span className="h-2 w-2 rounded-full" style={{ background: dot, boxShadow: `0 0 8px ${dot}` }} />
+              <span>{label?.name ?? "Unlabeled"}</span>
+              <ChevronDown className="h-3 w-3 text-muted-foreground/70" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" side="bottom" className="sky-glass w-64 rounded-2xl border-0 p-2">
+            <div className="mb-1 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-muted-foreground/70">Choose a label</div>
+            <button
+              onClick={() => { actions.setStarLabel(star.id, null); setLabelPickerOpen(false); }}
+              className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-[12.5px] text-foreground/85 hover:bg-white/[0.06]"
+              data-testid="button-label-none"
+            >
+              <span className="h-2 w-2 rounded-full bg-[#e4dff0]" /> Unlabeled
+            </button>
+            {sky.labels.map((l) => (
+              <button
+                key={l.id}
+                onClick={() => { actions.setStarLabel(star.id, l.id); setLabelPickerOpen(false); }}
+                className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-[12.5px] hover:bg-white/[0.06] ${star.labelId === l.id ? "text-foreground" : "text-foreground/80"}`}
+                data-testid={`button-label-${l.id}`}
+              >
+                <span className="h-2 w-2 rounded-full" style={{ background: l.color }} />
+                {l.name}
+              </button>
+            ))}
+            {!newLabel && (
+              <button
+                onClick={() => setNewLabel({ name: "", color: PALETTE[sky.labels.length % PALETTE.length].hex })}
+                className="mt-1 flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-[12px] text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
+                data-testid="button-new-label-inline"
+              >
+                <Plus className="h-3 w-3" /> New label
+              </button>
+            )}
+            {newLabel && (
+              <div className="mt-1 rounded-xl bg-white/[0.04] p-3">
             <input
               autoFocus
               value={newLabel.name}
@@ -343,7 +473,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose, focusN
               onChange={(e) => setNewLabel({ ...newLabel, name: e.target.value })}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && newLabel.name.trim()) {
-                  actions.addLabel(newLabel.name.trim(), newLabel.color, (l) => actions.setStarLabel(star.id, l.id));
+                  actions.addLabel(newLabel.name.trim(), newLabel.color, (l) => { actions.setStarLabel(star.id, l.id); setLabelPickerOpen(false); });
                   setNewLabel(null);
                 }
                 if (e.key === "Escape") { e.stopPropagation(); setNewLabel(null); }
@@ -367,7 +497,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose, focusN
                 <button
                   disabled={!newLabel.name.trim()}
                   onClick={() => {
-                    actions.addLabel(newLabel.name.trim(), newLabel.color, (l) => actions.setStarLabel(star.id, l.id));
+                    actions.addLabel(newLabel.name.trim(), newLabel.color, (l) => { actions.setStarLabel(star.id, l.id); setLabelPickerOpen(false); });
                     setNewLabel(null);
                   }}
                   className="rounded-md bg-primary/90 px-2.5 py-1 text-[12px] font-medium text-primary-foreground disabled:opacity-40"
@@ -377,6 +507,83 @@ export default function JournalCard({ star, sky, roots, actions, onClose, focusN
                 </button>
               </div>
             </div>
+              </div>
+            )}
+          </PopoverContent>
+        </Popover> : (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              onClick={() => actions.setStarLabel(star.id, null)}
+              className={`rounded-full px-2.5 py-1 text-[12px] transition-all duration-300 ${star.labelId == null ? "bg-white/10 text-foreground" : "text-muted-foreground hover:bg-white/5"}`}
+              data-testid="button-label-none"
+            >
+              Unlabeled
+            </button>
+            {sky.labels.map((l) => (
+              <button
+                key={l.id}
+                onClick={() => actions.setStarLabel(star.id, l.id)}
+                className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] transition-all duration-300 ${star.labelId === l.id ? "bg-white/10 text-foreground" : "text-muted-foreground hover:bg-white/5"}`}
+                data-testid={`button-label-${l.id}`}
+              >
+                <span className="h-2 w-2 rounded-full" style={{ background: l.color }} />
+                {l.name}
+              </button>
+            ))}
+            {!newLabel && (
+              <button
+                onClick={() => setNewLabel({ name: "", color: PALETTE[sky.labels.length % PALETTE.length].hex })}
+                className="flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] text-muted-foreground/80 hover:bg-white/5 hover:text-foreground"
+                data-testid="button-new-label-inline"
+              >
+                <Plus className="h-3 w-3" /> Label
+              </button>
+            )}
+            {newLabel && (
+              <div className="mt-2 w-full rounded-xl bg-white/[0.04] p-3">
+                <input
+                  autoFocus
+                  value={newLabel.name}
+                  maxLength={40}
+                  onChange={(e) => setNewLabel({ ...newLabel, name: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newLabel.name.trim()) {
+                      actions.addLabel(newLabel.name.trim(), newLabel.color, (l) => actions.setStarLabel(star.id, l.id));
+                      setNewLabel(null);
+                    }
+                    if (e.key === "Escape") { e.stopPropagation(); setNewLabel(null); }
+                  }}
+                  placeholder="Label name"
+                  className="quiet-input mb-2.5 w-full text-[13px]"
+                  data-testid="input-new-label-name"
+                />
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {PALETTE.map((p) => (
+                    <button
+                      key={p.hex}
+                      title={p.name}
+                      onClick={() => setNewLabel({ ...newLabel, color: p.hex })}
+                      className={`h-5 w-5 rounded-full transition-transform duration-300 soft-ease ${newLabel.color === p.hex ? "scale-110 ring-2 ring-white/50 ring-offset-2 ring-offset-[#1d1534]" : "hover:scale-110"}`}
+                      style={{ background: p.hex }}
+                    />
+                  ))}
+                  <div className="ml-auto flex gap-1">
+                    <button onClick={() => setNewLabel(null)} className="rounded-md px-2 py-1 text-[12px] text-muted-foreground hover:text-foreground">Cancel</button>
+                    <button
+                      disabled={!newLabel.name.trim()}
+                      onClick={() => {
+                        actions.addLabel(newLabel.name.trim(), newLabel.color, (l) => actions.setStarLabel(star.id, l.id));
+                        setNewLabel(null);
+                      }}
+                      className="rounded-md bg-primary/90 px-2.5 py-1 text-[12px] font-medium text-primary-foreground disabled:opacity-40"
+                      data-testid="button-create-label-inline"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -419,30 +626,33 @@ export default function JournalCard({ star, sky, roots, actions, onClose, focusN
         <div className="rounded-2xl bg-white/[0.045] px-4 py-3 transition-colors duration-500 focus-within:bg-white/[0.07]">
           <textarea
             ref={draftRef}
-            rows={2}
+            rows={composerExpanded ? 2 : 1}
             value={draft}
+            onFocus={() => setComposerOpen(true)}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); addNote(); return; }
               formatKeyDown(e, setDraft);
             }}
             placeholder="Write something down..."
-            className="quiet-input thin-scroll max-h-[38vh] w-full resize-none text-[14px] leading-relaxed"
+            className={`quiet-input thin-scroll w-full resize-none text-[14px] leading-relaxed ${composerExpanded ? "max-h-[38vh]" : "max-h-[1.8rem] overflow-hidden"}`}
             data-testid="input-new-note"
           />
-          <div className="flex items-center justify-between gap-2 pt-1">
-            <FormatBar target={draftRef} setValue={setDraft} words={wordCount(draft)}>
-              <span className="ml-2 text-[11px] text-muted-foreground/40 max-sm:hidden">· Ctrl + Enter to add</span>
-            </FormatBar>
-            <button
-              onClick={addNote}
-              disabled={!draft.trim() || createNote.isPending}
-              className="rounded-full bg-primary px-3.5 py-1.5 text-[12.5px] font-medium text-primary-foreground transition-all duration-300 hover:brightness-105 disabled:opacity-30"
-              data-testid="button-add-note"
-            >
-              Add note
-            </button>
-          </div>
+          {composerExpanded && (
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <FormatBar target={draftRef} setValue={setDraft} words={wordCount(draft)}>
+                <span className="ml-2 text-[11px] text-muted-foreground/40 max-sm:hidden">· Ctrl + Enter to add</span>
+              </FormatBar>
+              <button
+                onClick={addNote}
+                disabled={!draft.trim() || createNote.isPending}
+                className="rounded-full bg-primary px-3.5 py-1.5 text-[12.5px] font-medium text-primary-foreground transition-all duration-300 hover:brightness-105 disabled:opacity-30"
+                data-testid="button-add-note"
+              >
+                Add note
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -474,13 +684,15 @@ export default function JournalCard({ star, sky, roots, actions, onClose, focusN
         ) : (
           <span className="flex-1 text-muted-foreground/60">Drag from a star's halo to connect it.</span>
         )}
-        <button
-          onClick={() => setConfirm(true)}
-          className="flex items-center gap-1.5 text-muted-foreground/70 transition-colors hover:text-[hsl(350_62%_74%)]"
-          data-testid="button-delete-star"
-        >
-          <Trash2 className="h-3.5 w-3.5" /> Delete
-        </button>
+        {!narrow && (
+          <button
+            onClick={() => setConfirm(true)}
+            className="flex items-center gap-1.5 text-muted-foreground/70 transition-colors hover:text-[hsl(350_62%_74%)]"
+            data-testid="button-delete-star"
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Delete
+          </button>
+        )}
       </div>
 
       <AlertDialog open={confirmNote != null} onOpenChange={(o) => { if (!o) setConfirmNote(null); }}>
