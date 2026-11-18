@@ -1,0 +1,899 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: Starlog API — a journal where thoughts live as stars in a personal constellation.
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: Auth
+    description: Browser and mobile authentication endpoints.
+  - name: sky
+    description: The user's whole sky (stars, labels, connections, constellations)
+  - name: stars
+    description: Stars (topics/thoughts)
+  - name: notes
+    description: Journal notes inside a star
+  - name: labels
+    description: Color labels
+  - name: connections
+    description: Lines between stars
+  - name: constellations
+    description: Named groups of connected stars
+  - name: demo
+    description: Guest demo sky
+  - name: export
+    description: Journal export
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /auth/user:
+    get:
+      tags: [Auth]
+      operationId: getCurrentAuthUser
+      summary: Get the currently authenticated user
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+        - $ref: '#/components/parameters/SessionCookie'
+      responses:
+        '200':
+          description: Auth status resolved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUserEnvelope'
+  /login:
+    get:
+      tags: [Auth]
+      operationId: beginBrowserLogin
+      summary: Start the browser OIDC login flow
+      parameters:
+        - name: returnTo
+          in: query
+          required: false
+          description: Relative path to redirect to after login (must start with `/`). Defaults to `/`.
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to the OIDC authorization endpoint.
+  /callback:
+    get:
+      tags: [Auth]
+      operationId: handleBrowserLoginCallback
+      summary: Complete the browser OIDC login flow
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: iss
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uri
+      responses:
+        '302':
+          description: Redirect to the `returnTo` path on success (defaults to `/`) or `/api/login` on failure.
+  /logout:
+    get:
+      tags: [Auth]
+      operationId: logoutBrowserSession
+      summary: Clear the session and begin OIDC logout
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+        - $ref: '#/components/parameters/SessionCookie'
+        - name: returnTo
+          in: query
+          required: false
+          schema:
+            type: string
+            default: /
+      responses:
+        '302':
+          description: Redirect to the OIDC provider logout URL with a post-logout redirect back to the validated `returnTo` path.
+  /mobile-auth/token-exchange:
+    post:
+      tags: [Auth]
+      operationId: exchangeMobileAuthorizationCode
+      summary: Exchange a mobile OIDC code for a session token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MobileTokenExchangeRequest'
+      responses:
+        '200':
+          description: Session created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MobileTokenExchangeSuccess'
+        '400':
+          description: Missing or invalid required fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: Token did not contain usable claims.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: Token exchange failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /mobile-auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logoutMobileSession
+      summary: Delete a mobile session token
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+      responses:
+        '200':
+          description: Logout processed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutSuccess'
+
+  /demo/start:
+    post:
+      tags: [demo]
+      operationId: startDemo
+      summary: Start a guest demo session with a freshly seeded sample sky
+      description: Creates a temporary guest account seeded with ~15 stars, 4 labels and 3 named constellations, and sets the session cookie. Afterwards all sky endpoints work for the guest.
+      responses:
+        "200":
+          description: Demo session started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoSession"
+  /demo/end:
+    post:
+      tags: [demo]
+      operationId: endDemo
+      summary: End the guest demo session (deletes the guest sky)
+      responses:
+        "200":
+          description: Demo ended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogoutSuccess"
+
+  /sky:
+    get:
+      operationId: getSky
+      tags: [sky]
+      summary: Get the whole sky for the current user
+      responses:
+        "200":
+          description: The sky
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sky"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /sky/stats:
+    get:
+      operationId: getSkyStats
+      tags: [sky]
+      summary: Summary counts for the sky
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkyStats"
+  /search:
+    get:
+      operationId: searchSky
+      tags: [sky]
+      summary: Search star titles and note text
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Matching stars
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SearchResult"
+
+  /stars:
+    post:
+      operationId: createStar
+      tags: [stars]
+      summary: Create a star
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StarInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Star"
+  /stars/{starId}:
+    parameters:
+      - name: starId
+        in: path
+        required: true
+        schema:
+          type: integer
+    patch:
+      operationId: updateStar
+      tags: [stars]
+      summary: Update a star's title, position or label
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StarUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Star"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteStar
+      tags: [stars]
+      summary: Delete a star with its notes and connections
+      responses:
+        "204":
+          description: Deleted
+  /stars/{starId}/notes:
+    parameters:
+      - name: starId
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      operationId: listStarNotes
+      tags: [notes]
+      summary: List notes in a star (oldest first)
+      responses:
+        "200":
+          description: Notes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Note"
+    post:
+      operationId: createNote
+      tags: [notes]
+      summary: Add a note to a star
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NoteInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Note"
+  /notes/{noteId}:
+    parameters:
+      - name: noteId
+        in: path
+        required: true
+        schema:
+          type: integer
+    patch:
+      operationId: updateNote
+      tags: [notes]
+      summary: Edit a note (marks it edited)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NoteUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Note"
+    delete:
+      operationId: deleteNote
+      tags: [notes]
+      summary: Delete a note
+      responses:
+        "204":
+          description: Deleted
+
+  /labels:
+    get:
+      operationId: listLabels
+      tags: [labels]
+      summary: List color labels with star counts
+      responses:
+        "200":
+          description: Labels
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Label"
+    post:
+      operationId: createLabel
+      tags: [labels]
+      summary: Create a color label
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LabelInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Label"
+  /labels/{labelId}:
+    parameters:
+      - name: labelId
+        in: path
+        required: true
+        schema:
+          type: integer
+    patch:
+      operationId: updateLabel
+      tags: [labels]
+      summary: Rename or recolor a label
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LabelUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Label"
+    delete:
+      operationId: deleteLabel
+      tags: [labels]
+      summary: Delete a label (stars keep existing, unlabeled)
+      responses:
+        "204":
+          description: Deleted
+
+  /connections:
+    post:
+      operationId: createConnection
+      tags: [connections]
+      summary: Connect two stars
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConnectionInput"
+      responses:
+        "201":
+          description: Created (or the existing connection if already connected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Connection"
+        "400":
+          description: Invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /connections/{connectionId}:
+    parameters:
+      - name: connectionId
+        in: path
+        required: true
+        schema:
+          type: integer
+    delete:
+      operationId: deleteConnection
+      tags: [connections]
+      summary: Remove a connection line
+      responses:
+        "204":
+          description: Deleted
+
+  /constellations:
+    post:
+      operationId: createConstellation
+      tags: [constellations]
+      summary: Name the constellation that contains the anchor star
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConstellationInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Constellation"
+  /constellations/{constellationId}:
+    parameters:
+      - name: constellationId
+        in: path
+        required: true
+        schema:
+          type: integer
+    patch:
+      operationId: updateConstellation
+      tags: [constellations]
+      summary: Rename a constellation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConstellationUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Constellation"
+    delete:
+      operationId: deleteConstellation
+      tags: [constellations]
+      summary: Remove a constellation name (connections stay)
+      responses:
+        "204":
+          description: Deleted
+
+  /export/json:
+    get:
+      operationId: exportJson
+      tags: [export]
+      summary: Download the whole journal as JSON (Content-Disposition attachment)
+      responses:
+        "200":
+          description: JSON export
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JournalExport"
+  /export/markdown:
+    get:
+      operationId: exportMarkdown
+      tags: [export]
+      summary: Download the whole journal as Markdown (Content-Disposition attachment)
+      responses:
+        "200":
+          description: Markdown export
+          content:
+            text/markdown:
+              schema:
+                type: string
+
+components:
+  parameters:
+    AuthorizationSessionHeader:
+      name: Authorization
+      in: header
+      required: false
+      description: Opaque session token — `Bearer <sid>`.
+      schema:
+        type: string
+    SessionCookie:
+      name: sid
+      in: cookie
+      required: false
+      description: Browser session cookie.
+      schema:
+        type: string
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    AuthUser:
+      type: object
+      required: [id, email, firstName, lastName, profileImageUrl]
+      properties:
+        id:
+          type: string
+        email:
+          type: [string, 'null']
+          format: email
+        firstName:
+          type: [string, 'null']
+        lastName:
+          type: [string, 'null']
+        profileImageUrl:
+          type: [string, 'null']
+    AuthUserEnvelope:
+      type: object
+      required: [user]
+      properties:
+        user:
+          oneOf:
+            - $ref: '#/components/schemas/AuthUser'
+            - type: 'null'
+    MobileTokenExchangeRequest:
+      type: object
+      required: [code, code_verifier, redirect_uri, state]
+      properties:
+        code:
+          type: string
+          minLength: 1
+        code_verifier:
+          type: string
+          minLength: 1
+        redirect_uri:
+          type: string
+          minLength: 1
+          format: uri
+        state:
+          type: string
+          minLength: 1
+        nonce:
+          type: string
+          minLength: 1
+    MobileTokenExchangeSuccess:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+    LogoutSuccess:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+          const: true
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    DemoSession:
+      type: object
+      required: [success, isDemo]
+      properties:
+        success:
+          type: boolean
+        isDemo:
+          type: boolean
+
+    Sky:
+      type: object
+      required: [isDemo, labels, stars, connections, constellations]
+      properties:
+        isDemo:
+          type: boolean
+          description: True when the current session is a guest demo sky (not saved to an account)
+        labels:
+          type: array
+          items:
+            $ref: "#/components/schemas/Label"
+        stars:
+          type: array
+          items:
+            $ref: "#/components/schemas/Star"
+        connections:
+          type: array
+          items:
+            $ref: "#/components/schemas/Connection"
+        constellations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Constellation"
+
+    SkyStats:
+      type: object
+      required: [starCount, noteCount, labelCount, connectionCount, constellationCount, notesThisWeek, firstStarAt, lastNoteAt]
+      properties:
+        starCount: { type: integer }
+        noteCount: { type: integer }
+        labelCount: { type: integer }
+        connectionCount: { type: integer }
+        constellationCount: { type: integer }
+        notesThisWeek: { type: integer }
+        firstStarAt:
+          type: [string, "null"]
+          format: date-time
+        lastNoteAt:
+          type: [string, "null"]
+          format: date-time
+
+    SearchResult:
+      type: object
+      required: [starId, title, matchedIn, snippet]
+      properties:
+        starId: { type: integer }
+        title: { type: string }
+        matchedIn:
+          type: string
+          enum: [title, note]
+        snippet:
+          type: string
+          description: Short excerpt around the match (the title when matchedIn is title)
+
+    Star:
+      type: object
+      required: [id, title, x, y, labelId, noteCount, createdAt, updatedAt]
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        x:
+          type: number
+          description: World-space x coordinate
+        y:
+          type: number
+          description: World-space y coordinate
+        labelId:
+          type: [integer, "null"]
+        noteCount:
+          type: integer
+          description: Number of notes in this star (drives star size)
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    StarInput:
+      type: object
+      required: [x, y]
+      properties:
+        title:
+          type: string
+          maxLength: 200
+          description: Defaults to "Untitled star"
+        x: { type: number }
+        y: { type: number }
+        labelId:
+          type: [integer, "null"]
+    StarUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 200
+        x: { type: number }
+        y: { type: number }
+        labelId:
+          type: [integer, "null"]
+
+    Note:
+      type: object
+      required: [id, starId, body, createdAt, editedAt]
+      properties:
+        id: { type: integer }
+        starId: { type: integer }
+        body: { type: string }
+        createdAt:
+          type: string
+          format: date-time
+        editedAt:
+          type: [string, "null"]
+          format: date-time
+          description: Set when the note body was changed after creation
+    NoteInput:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          maxLength: 20000
+    NoteUpdate:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          maxLength: 20000
+
+    Label:
+      type: object
+      required: [id, name, color, starCount, createdAt]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        color:
+          type: string
+          description: Hex color like "#8FB3E8"
+        starCount: { type: integer }
+        createdAt:
+          type: string
+          format: date-time
+    LabelInput:
+      type: object
+      required: [name, color]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 40
+        color:
+          type: string
+          pattern: "^#[0-9A-Fa-f]{6}$"
+    LabelUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 40
+        color:
+          type: string
+          pattern: "^#[0-9A-Fa-f]{6}$"
+
+    Connection:
+      type: object
+      required: [id, fromStarId, toStarId, createdAt]
+      properties:
+        id: { type: integer }
+        fromStarId: { type: integer }
+        toStarId: { type: integer }
+        createdAt:
+          type: string
+          format: date-time
+    ConnectionInput:
+      type: object
+      required: [fromStarId, toStarId]
+      properties:
+        fromStarId: { type: integer }
+        toStarId: { type: integer }
+
+    Constellation:
+      type: object
+      required: [id, name, anchorStarId, createdAt]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        anchorStarId:
+          type: integer
+          description: A star in the group. The constellation is the connected component (via connections) containing this star; the client computes its members and places the name near their centroid.
+        createdAt:
+          type: string
+          format: date-time
+    ConstellationInput:
+      type: object
+      required: [name, anchorStarId]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 60
+        anchorStarId: { type: integer }
+    ConstellationUpdate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 60
+
+    ExportNote:
+      type: object
+      required: [body, createdAt, editedAt]
+      properties:
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
+        editedAt:
+          type: [string, "null"]
+          format: date-time
+    ExportStar:
+      type: object
+      required: [id, title, label, x, y, createdAt, notes]
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        label:
+          type: [string, "null"]
+        x: { type: number }
+        y: { type: number }
+        createdAt: { type: string, format: date-time }
+        notes:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExportNote"
+    JournalExport:
+      type: object
+      required: [exportedAt, labels, stars, connections, constellations]
+      properties:
+        exportedAt: { type: string, format: date-time }
+        labels:
+          type: array
+          items:
+            $ref: "#/components/schemas/Label"
+        stars:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExportStar"
+        connections:
+          type: array
+          items:
+            $ref: "#/components/schemas/Connection"
+        constellations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Constellation"

@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Starlog"
+description = "A calm journal app where each thought or topic is a glowing star in a personal night-sky constellation. Users pan and zoom the sky, create stars, write timestamped journal notes inside them, color-code them with labels, connect related stars into named constellations, search, and replay the sky's growth over time. Private per-user skies via Replit Auth, plus a demo sky."
+version = "1.0.0"
+id = "artifacts/starlog"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 26240
+
+[services.development]
+run = "pnpm --filter @workspace/starlog run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/starlog", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/starlog/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "26240"
+BASE_PATH = "/"

@@ -1,0 +1,1 @@
+- [Demo guest sessions](demo-guest-sessions.md) — demo = real guest user + session, same API as real users; purge rules
