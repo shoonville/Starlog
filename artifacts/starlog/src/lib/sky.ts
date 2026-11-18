@@ -22,6 +22,13 @@ export function starRadius(noteCount: number) {
   return Math.min(4.2 + 3.3 * Math.log2(1 + Math.max(0, noteCount)), 17);
 }
 
+/** The label color lifted slightly toward white (used for small swatches so they read as bright as the stars). */
+export function brighten(hex: string, amount = 0.16) {
+  const [r, g, b] = hexToRgb(hex);
+  const up = (c: number) => Math.round(c + (255 - c) * amount);
+  return `rgb(${up(r)}, ${up(g)}, ${up(b)})`;
+}
+
 export function hexToRgb(hex: string): [number, number, number] {
   const h = hex.replace("#", "");
   const n = parseInt(h.length === 3 ? h.split("").map((c) => c + c).join("") : h, 16);

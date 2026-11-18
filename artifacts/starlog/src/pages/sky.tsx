@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useEndDemo, type Sky } from "@workspace/api-client-react";
 import { useAuth } from "@workspace/replit-auth-web";
-import { Clock, Download, History, Link2, Menu, Plus, Search, ZoomIn, ZoomOut } from "lucide-react";
+import { ChartNoAxesGantt, Clock, Download, Link2, Menu, Plus, Search, ZoomIn, ZoomOut } from "lucide-react";
 import SkyCanvas, { type SkyCanvasHandle } from "@/components/sky-canvas";
 import JournalCard from "@/components/journal-card";
 import { Legend, SearchPanel, StatsReadout, Timeline } from "@/components/sky-overlays";
@@ -31,8 +31,7 @@ function useNarrow() {
 
 function ToolButton({ label, kbd, active, onClick, children, testId }: { label: string; kbd?: string; active?: boolean; onClick: () => void; children: React.ReactNode; testId: string }) {
   return (
-    <Tooltip delayDuration={500}>
-      <TooltipTrigger asChild>
+    <Tip label={label} kbd={kbd}>
         <button
           onClick={onClick}
           aria-label={label}
@@ -41,8 +40,16 @@ function ToolButton({ label, kbd, active, onClick, children, testId }: { label: 
         >
           {children}
         </button>
-      </TooltipTrigger>
-      <TooltipContent side="top" className="sky-pill rounded-lg border-0 px-2.5 py-1 text-[11.5px] text-foreground">
+    </Tip>
+  );
+}
+
+/** Small hover label for toolbar icons. */
+function Tip({ label, kbd, children }: { label: string; kbd?: string; children: React.ReactElement }) {
+  return (
+    <Tooltip delayDuration={250}>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side="top" sideOffset={10} className="tip-soft rounded-lg border-0 px-2.5 py-1 text-[11.5px] text-foreground/95">
         {label}
         {kbd && <span className="ml-2 text-muted-foreground">{kbd}</span>}
       </TooltipContent>
@@ -93,6 +100,28 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
   const [focusNote, setFocusNote] = useState<{ starId: number; noteId: number } | null>(null);
   const [devOpen, setDevOpen] = useState(() => new URLSearchParams(window.location.search).has("dev"));
   const sleepTimer = useRef<number>(0);
+  const legendRef = useRef<HTMLDivElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+
+  /** Screen space the UI covers, so the first view keeps every star clear of it. */
+  const getInsets = useCallback(() => {
+    const W = window.innerWidth, H = window.innerHeight;
+    const isNarrow = W < 768;
+    const edge = isNarrow ? 28 : 56;
+    const top = (sky.isDemo ? (isNarrow ? 100 : 76) : isNarrow ? 64 : 72) + 8;
+    const tb = toolbarRef.current?.getBoundingClientRect();
+    const bottom = (tb && tb.height > 0 ? H - tb.top : isNarrow ? 68 : 72) + 40;
+    const base = { top, right: edge, bottom, left: edge };
+    const lg = legendRef.current?.getBoundingClientRect();
+    if (!lg || lg.width === 0) return base;
+    // The legend sits in the bottom-left corner: keep stars either to its right or above it,
+    // whichever leaves more room.
+    const besideLeft = lg.right + 28;
+    const aboveBottom = H - lg.top + 28;
+    const areaBeside = (W - besideLeft - edge) * (H - top - bottom);
+    const areaAbove = (W - 2 * edge) * (H - top - Math.max(bottom, aboveBottom));
+    return areaBeside > areaAbove ? { ...base, left: besideLeft } : { ...base, bottom: Math.max(bottom, aboveBottom) };
+  }, [sky.isDemo]);
 
   const roots = useMemo(() => componentRoots(sky.stars, sky.connections), [sky.stars, sky.connections]);
   const cviews = useMemo(() => constellationViews(sky.stars, sky.connections, sky.constellations, roots), [sky.stars, sky.connections, sky.constellations, roots]);
@@ -214,6 +243,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
         onConnect={actions.connect}
         onDeleteConnection={(id) => { actions.disconnect(id); toast({ title: "Line removed" }); }}
         onActivity={wake}
+        getInsets={getInsets}
       />
 
       {/* top left wordmark */}
@@ -308,7 +338,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
 
       {/* legend */}
       {!narrow || !selected ? (
-        <div className={`absolute bottom-24 left-4 z-10 md:bottom-6 md:left-6 ${empty && sky.labels.length === 0 ? "hidden" : ""}`}>
+        <div ref={legendRef} className={`absolute bottom-24 left-4 z-10 md:bottom-6 md:left-6 ${empty && sky.labels.length === 0 ? "hidden" : ""}`}>
           <Legend labels={sky.labels} active={labelFilter} onToggle={(id) => setLabelFilter((c) => (c === id ? null : id))} actions={actions} dimmed={!toolbarVisible && labelFilter == null} />
         </div>
       ) : null}
@@ -333,23 +363,25 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
               <Timeline stars={sky.stars} onCutoff={setCutoff} onClose={() => { setTimelineOpen(false); setCutoff(null); }} />
             </motion.div>
           ) : (
-            <motion.div key="tb" className="flex justify-center" initial={{ opacity: 0, y: 16 }} animate={{ opacity: toolbarVisible ? 1 : 0.22, y: 0 }} exit={{ opacity: 0, y: 16 }} transition={{ duration: 0.9, ease: EASE }}>
-              <div style={{ pointerEvents: "auto" }} onPointerEnter={wake} className="sky-pill flex items-center gap-0.5 rounded-full p-1.5" data-testid="toolbar">
+            <motion.div key="tb" className="flex justify-center" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }} transition={{ duration: 0.9, ease: EASE }}>
+              <div ref={toolbarRef} style={{ pointerEvents: "auto" }} onPointerEnter={wake} className={`sky-dock flex items-center gap-0.5 rounded-full p-1.5 ${toolbarVisible ? "" : "dock-asleep"}`} data-testid="toolbar">
                 <button onClick={createAtCenter} disabled={actions.creating} className="mr-1 flex h-9 items-center gap-1.5 rounded-full bg-primary px-4 text-[13px] font-medium text-primary-foreground transition-all duration-500 soft-ease hover:brightness-105 disabled:opacity-60" data-testid="button-new-star">
                   <Plus className="h-4 w-4" /> New Star
                 </button>
                 <ToolButton label="Connect stars" active={connectMode} onClick={() => { setConnectMode((v) => !v); setConnectFrom(null); setSelectedId(null); }} testId="button-connect-mode"><Link2 className="h-4 w-4" /></ToolButton>
-                <ToolButton label="Recently written" kbd="R" active={recentOpen} onClick={() => setRecentOpen((v) => !v)} testId="button-recent"><Clock className="h-4 w-4" /></ToolButton>
+                <ToolButton label="Recent stars" kbd="R" active={recentOpen} onClick={() => setRecentOpen((v) => !v)} testId="button-recent"><Clock className="h-4 w-4" /></ToolButton>
                 <ToolButton label="Search" kbd="/" active={searchOpen} onClick={() => setSearchOpen((v) => !v)} testId="button-search"><Search className="h-4 w-4" /></ToolButton>
-                <ToolButton label="Replay your sky" onClick={() => { setSelectedId(null); setConnectMode(false); setTimelineOpen(true); }} testId="button-timeline"><History className="h-4 w-4" /></ToolButton>
+                <ToolButton label="Timeline" onClick={() => { setSelectedId(null); setConnectMode(false); setTimelineOpen(true); }} testId="button-timeline"><ChartNoAxesGantt className="h-4 w-4" /></ToolButton>
                 {!narrow && <ToolButton label="Zoom out" onClick={() => canvas.current?.zoomBy(0.75)} testId="button-zoom-out"><ZoomOut className="h-4 w-4" /></ToolButton>}
                 {!narrow && <ToolButton label="Zoom in" onClick={() => canvas.current?.zoomBy(1.33)} testId="button-zoom-in"><ZoomIn className="h-4 w-4" /></ToolButton>}
                 <DropdownMenu>
+                  <Tip label="Export journal">
                   <DropdownMenuTrigger asChild>
-                    <button aria-label="Export" className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.07] hover:text-foreground" data-testid="button-export">
+                    <button aria-label="Export journal" className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.07] hover:text-foreground" data-testid="button-export">
                       <Download className="h-4 w-4" />
                     </button>
                   </DropdownMenuTrigger>
+                  </Tip>
                   <DropdownMenuContent side="top" align="center" className="sky-glass mb-2 min-w-44 rounded-xl border-0 p-1.5">
                     <div className="px-2 pb-1.5 pt-1 text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/70">Export journal</div>
                     <DropdownMenuItem asChild className="rounded-lg text-[13px]">
@@ -361,18 +393,20 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
                   </DropdownMenuContent>
                 </DropdownMenu>
                 <Popover>
+                  <Tip label="Your sky and shortcuts">
                   <PopoverTrigger asChild>
-                    <button aria-label="About your sky" className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.07] hover:text-foreground" data-testid="button-menu">
+                    <button aria-label="Your sky and shortcuts" className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.07] hover:text-foreground" data-testid="button-menu">
                       <Menu className="h-4 w-4" />
                     </button>
                   </PopoverTrigger>
+                  </Tip>
                   <PopoverContent side="top" align="end" className="sky-glass mb-2 w-72 rounded-2xl border-0 p-5">
                     <div className="mb-3 text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/70">Your sky</div>
                     <StatsReadout />
                     <div className="my-4 h-px bg-white/[0.07]" />
                     <div className="mb-2 text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/70">Shortcuts</div>
                     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[12.5px]">
-                      {[["N", "New star"], ["/", "Search"], ["R", "Recently written"], ["Ctrl + Z", "Undo a delete"], ["Esc", "Close card, exit modes"], ["Double-click", "Star at that spot"], ["Drag halo", "Connect two stars"]].map(([k, v]) => (
+                      {[["N", "New star"], ["/", "Search"], ["R", "Recent stars"], ["Ctrl + Z", "Undo a delete"], ["Esc", "Close card, exit modes"], ["Double-click", "Star at that spot"], ["Drag halo", "Connect two stars"]].map(([k, v]) => (
                         <div key={k} className="contents"><dt className="font-medium text-foreground/90">{k}</dt><dd className="text-muted-foreground">{v}</dd></div>
                       ))}
                     </dl>

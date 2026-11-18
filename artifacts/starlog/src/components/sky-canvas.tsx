@@ -26,6 +26,8 @@ type Props = {
   onConnect: (a: number, b: number) => void;
   onDeleteConnection: (id: number) => void;
   onActivity?: () => void;
+  /** Screen space (px) covered by UI on each side; the first view keeps every star and label clear of it. */
+  getInsets?: () => { top: number; right: number; bottom: number; left: number };
 };
 
 type Anim = { r: number; a: number; dim: number; hover: number; sel: number };
@@ -106,23 +108,6 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
       s.anchor = { sx: s.w / 2, sy: s.h / 2, wx, wy };
     },
   }));
-
-  // center camera on first load
-  useEffect(() => {
-    const s = S.current;
-    if (s.initialized) return;
-    s.initialized = true;
-    const st = props.stars;
-    if (st.length) {
-      let x = 0, y = 0;
-      for (const a of st) { x += a.x; y += a.y; }
-      x /= st.length; y /= st.length;
-      s.cam.x = s.tgt.x = x;
-      s.cam.y = s.tgt.y = y;
-    }
-    s.cam.z = 0.82;
-    s.tgt.z = 1;
-  }, [props.stars]);
 
   useEffect(() => {
     const canvas = canvasRef.current!;
@@ -398,8 +383,94 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
     canvas.addEventListener("wheel", onWheel, { passive: false });
     canvas.addEventListener("contextmenu", noCtx);
 
+    /**
+     * First view: the largest zoom (up to a gentle cap) at which every star,
+     * its glow, its title and every constellation name fit inside the screen
+     * minus the UI insets; then center that content in the free area.
+     */
+    const fitView = () => {
+      const p = P.current;
+      const ins = p.getInsets?.() ?? { top: 72, right: 48, bottom: 112, left: 48 };
+      const availW = Math.max(120, s.w - ins.left - ins.right);
+      const availH = Math.max(120, s.h - ins.top - ins.bottom);
+      const stars = p.stars;
+      if (!stars.length) {
+        s.cam.x = s.tgt.x = 0;
+        s.cam.y = s.tgt.y = 0;
+        s.cam.z = 0.82;
+        s.tgt.z = 1;
+        return;
+      }
+      ctx.font = "500 11.5px Inter, ui-sans-serif, sans-serif";
+      const titleHalf = stars.map((st) => {
+        const title = st.title.length > 34 ? st.title.slice(0, 33) + "…" : st.title;
+        return ctx.measureText(title).width / 2;
+      });
+      ctx.font = "400 11px Inter, ui-sans-serif, sans-serif";
+      const byId = new Map(stars.map((st) => [st.id, st]));
+      const cons = p.constellations
+        .map((cv) => {
+          const ms = cv.members.map((id) => byId.get(id)).filter((m): m is Star => !!m);
+          if (ms.length < 2) return null;
+          return {
+            ms,
+            half: ctx.measureText(cv.name.toUpperCase().split("").join("\u200A")).width / 2,
+          };
+        })
+        .filter((c): c is { ms: Star[]; half: number } => !!c);
+
+      const extents = (z: number) => {
+        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+        stars.forEach((st, i) => {
+          const r = Math.max(2.2, starRadius(st.noteCount) * Math.pow(z, 0.85));
+          const glow = r * 1.8 + 4;
+          const half = Math.max(glow, titleHalf[i]!);
+          const x = st.x * z, y = st.y * z;
+          x0 = Math.min(x0, x - half);
+          x1 = Math.max(x1, x + half);
+          y0 = Math.min(y0, y - glow);
+          y1 = Math.max(y1, y + r + 9 + 15);
+        });
+        for (const c of cons) {
+          let ax = 0, maxY = -Infinity;
+          for (const m of c.ms) { ax += m.x * z; maxY = Math.max(maxY, m.y * z); }
+          ax /= c.ms.length;
+          x0 = Math.min(x0, ax - c.half);
+          x1 = Math.max(x1, ax + c.half);
+          y1 = Math.max(y1, maxY + 30 + 13);
+        }
+        return { x0, x1, y0, y1 };
+      };
+      const fits = (z: number) => {
+        const e = extents(z);
+        return e.x1 - e.x0 <= availW && e.y1 - e.y0 <= availH;
+      };
+      const cap = Math.min(1.1, MAX_ZOOM);
+      let z = cap;
+      if (!fits(cap)) {
+        let lo = MIN_ZOOM, hi = cap;
+        for (let i = 0; i < 24; i++) {
+          const mid = (lo + hi) / 2;
+          if (fits(mid)) lo = mid; else hi = mid;
+        }
+        z = lo;
+      }
+      const e = extents(z);
+      // Content midpoint (in zoomed units) lands at the middle of the free area.
+      const midX = (e.x0 + e.x1) / 2, midY = (e.y0 + e.y1) / 2;
+      const freeCx = ins.left + availW / 2, freeCy = ins.top + availH / 2;
+      s.cam.x = s.tgt.x = (midX - (freeCx - s.w / 2)) / z;
+      s.cam.y = s.tgt.y = (midY - (freeCy - s.h / 2)) / z;
+      s.cam.z = z * 0.86;
+      s.tgt.z = z;
+    };
+
     const loop = (now: number) => {
       raf = requestAnimationFrame(loop);
+      if (!s.initialized && s.w > 0 && s.h > 0) {
+        s.initialized = true;
+        fitView();
+      }
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       const t = now / 1000;

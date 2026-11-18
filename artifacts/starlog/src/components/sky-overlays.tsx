@@ -11,7 +11,7 @@ import {
 } from "@workspace/api-client-react";
 import { Pause, Pencil, Play, Plus, Search, Trash2, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { PALETTE } from "@/lib/sky";
+import { PALETTE, brighten, hexToRgb } from "@/lib/sky";
 import type { SkyActions } from "@/hooks/use-sky-actions";
 
 /* ---------------- Legend ---------------- */
@@ -79,12 +79,12 @@ export function Legend({
           <li key={l.id} className="group flex items-center">
             <button
               onClick={() => onToggle(l.id)}
-              className={`flex flex-1 items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-[12.5px] transition-all duration-500 soft-ease ${active === l.id ? "bg-white/10 text-foreground" : active != null ? "text-muted-foreground/50 hover:text-muted-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              className={`flex flex-1 items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-[12.5px] transition-all duration-500 soft-ease ${active === l.id ? "bg-white/10 text-foreground" : active != null ? "text-foreground/45 hover:text-foreground/80" : "text-foreground/[0.82] hover:text-foreground"}`}
               data-testid={`button-legend-${l.id}`}
             >
-              <span className="h-2 w-2 rounded-full transition-colors duration-700" style={{ background: l.color, boxShadow: `0 0 10px ${l.color}99` }} />
+              <span className="h-2 w-2 shrink-0 rounded-full transition-colors duration-700" style={{ background: brighten(l.color), boxShadow: `0 0 8px rgba(${hexToRgb(l.color).join(",")},0.7), 0 0 2px ${brighten(l.color)}` }} />
               <span className="max-w-[9rem] truncate">{l.name}</span>
-              <span className="ml-auto pl-3 text-[11px] tabular-nums opacity-50">{l.starCount}</span>
+              <span className="ml-auto pl-3 text-[11px] tabular-nums opacity-[0.62]">{l.starCount}</span>
             </button>
             <Popover open={editing === l.id} onOpenChange={(o) => setEditing(o ? l.id : null)}>
               <PopoverTrigger asChild>
