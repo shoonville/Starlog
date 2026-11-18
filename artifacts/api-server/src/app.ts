@@ -4,7 +4,6 @@ import express, {
   type Request,
   type Response,
 } from "express";
-import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import { ZodError } from "zod";
@@ -13,6 +12,7 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 
 const app: Express = express();
+app.set("trust proxy", 1);
 
 app.use(
   pinoHttp({
@@ -33,7 +33,6 @@ app.use(
     },
   }),
 );
-app.use(cors({ credentials: true, origin: true }));
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -48,7 +47,9 @@ app.use((err: unknown, req: Request, res: Response, next: NextFunction) => {
     return;
   }
   if (err instanceof ZodError) {
-    res.status(400).json({ error: err.issues[0]?.message ?? "Invalid request" });
+    res
+      .status(400)
+      .json({ error: err.issues[0]?.message ?? "Invalid request" });
     return;
   }
   req.log.error({ err }, "Unhandled error");
