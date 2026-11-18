@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useEndDemo, type Sky } from "@workspace/api-client-react";
 import { useAuth } from "@workspace/replit-auth-web";
-import { Download, History, Link2, Menu, Plus, Search, ZoomIn, ZoomOut } from "lucide-react";
+import { Clock, Download, History, Link2, Menu, Plus, Search, ZoomIn, ZoomOut } from "lucide-react";
 import SkyCanvas, { type SkyCanvasHandle } from "@/components/sky-canvas";
 import JournalCard from "@/components/journal-card";
 import { Legend, SearchPanel, StatsReadout, Timeline } from "@/components/sky-overlays";
 import { Wordmark } from "@/components/wordmark";
+import { DevPanel, OnThisDay, RecentPanel, UndoBar } from "@/components/sky-extras";
+import { undoDelete, usePendingDeletes } from "@/lib/pending-deletes";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -48,7 +50,30 @@ function ToolButton({ label, kbd, active, onClick, children, testId }: { label: 
   );
 }
 
-export default function SkyPage({ sky }: { sky: Sky }) {
+/** The sky as it should look, with items that are waiting to be deleted hidden. */
+function useVisibleSky(sky: Sky): Sky {
+  const pending = usePendingDeletes();
+  return useMemo(() => {
+    if (!pending.length) return sky;
+    const goneStars = new Set(pending.filter((p) => p.kind === "star").map((p) => p.id));
+    const lessNotes = new Map<number, number>();
+    for (const p of pending) if (p.kind === "note" && p.starId != null) lessNotes.set(p.starId, (lessNotes.get(p.starId) ?? 0) + 1);
+    const stars = sky.stars
+      .filter((s) => !goneStars.has(s.id))
+      .map((s) => (lessNotes.has(s.id) ? { ...s, noteCount: Math.max(0, s.noteCount - lessNotes.get(s.id)!) } : s));
+    return {
+      ...sky,
+      stars,
+      connections: sky.connections.filter((c) => !goneStars.has(c.fromStarId) && !goneStars.has(c.toStarId)),
+      labels: sky.labels.map((l) => ({ ...l, starCount: stars.filter((s) => s.labelId === l.id).length })),
+    };
+  }, [sky, pending]);
+}
+
+export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
+  const sky = useVisibleSky(rawSky);
+  const pending = usePendingDeletes();
+  const hiddenNoteIds = useMemo(() => new Set(pending.filter((p) => p.kind === "note").map((p) => p.id)), [pending]);
   const { logout, login } = useAuth();
   const endDemo = useEndDemo();
   const actions = useSkyActions();
@@ -64,6 +89,9 @@ export default function SkyPage({ sky }: { sky: Sky }) {
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [cutoff, setCutoff] = useState<number | null>(null);
   const [awake, setAwake] = useState(true);
+  const [recentOpen, setRecentOpen] = useState(false);
+  const [focusNote, setFocusNote] = useState<{ starId: number; noteId: number } | null>(null);
+  const [devOpen, setDevOpen] = useState(() => new URLSearchParams(window.location.search).has("dev"));
   const sleepTimer = useRef<number>(0);
 
   const roots = useMemo(() => componentRoots(sky.stars, sky.connections), [sky.stars, sky.connections]);
@@ -87,6 +115,7 @@ export default function SkyPage({ sky }: { sky: Sky }) {
     const st = sky.stars.find((s) => s.id === id);
     if (!st) return;
     setSelectedId(id);
+    setFocusNote((f) => (f && f.starId === id ? f : null));
     const n = window.matchMedia("(max-width: 767px)").matches;
     canvas.current?.flyTo(st.x, st.y, n ? { dy: -window.innerHeight * 0.26 } : { dx: -210 });
   }, [sky.stars]);
@@ -123,8 +152,9 @@ export default function SkyPage({ sky }: { sky: Sky }) {
     if (selectedId != null) { setSelectedId(null); return; }
     if (connectMode) { setConnectMode(false); setConnectFrom(null); return; }
     if (timelineOpen) { setTimelineOpen(false); setCutoff(null); return; }
+    if (recentOpen) { setRecentOpen(false); return; }
     if (labelFilter != null) setLabelFilter(null);
-  }, [searchOpen, selectedId, connectMode, timelineOpen, labelFilter]);
+  }, [searchOpen, selectedId, connectMode, timelineOpen, recentOpen, labelFilter]);
 
   const keyRef = useRef({ exitModes, createAtCenter });
   keyRef.current = { exitModes, createAtCenter };
@@ -139,7 +169,14 @@ export default function SkyPage({ sky }: { sky: Sky }) {
         keyRef.current.exitModes();
         return;
       }
-      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (typing) return;
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === "z" || e.key === "Z")) {
+        if (undoDelete()) e.preventDefault();
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.shiftKey && (e.key === "D" || e.key === "d")) { e.preventDefault(); setDevOpen((v) => !v); return; }
+      if (e.key === "r" || e.key === "R") { e.preventDefault(); setRecentOpen((v) => !v); }
       if (e.key === "n" || e.key === "N") { e.preventDefault(); keyRef.current.createAtCenter(); }
       if (e.key === "/") { e.preventDefault(); setSearchOpen(true); }
     };
@@ -219,21 +256,52 @@ export default function SkyPage({ sky }: { sky: Sky }) {
         )}
       </AnimatePresence>
 
-      {/* empty state */}
+      {/* first-time hint */}
       <AnimatePresence>
         {empty && !timelineOpen && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 1.2, ease: EASE }}
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: { duration: 1.4, ease: EASE } }} transition={{ duration: 1.6, ease: EASE, delay: 0.4 }}
             className="pointer-events-none absolute inset-0 flex items-center justify-center px-8">
-            <div className="max-w-sm text-center">
-              <div className="mx-auto mb-7 h-2 w-2 rounded-full bg-[#f4e4c4] shadow-[0_0_24px_6px_rgba(244,228,196,0.35)] breathe" />
-              <h2 className="text-[26px] font-light tracking-[-0.02em] text-foreground">Your sky is still quiet.</h2>
-              <p className="mt-3 text-[14px] leading-relaxed text-muted-foreground">
-                Each star holds one thing you're thinking about. {narrow ? "Press and hold" : "Double-click"} anywhere to place the first one.
+            <div className="text-center">
+              <div className="mx-auto mb-5 h-1.5 w-1.5 rounded-full bg-[#f4e4c4] shadow-[0_0_20px_5px_rgba(244,228,196,0.3)] breathe" />
+              <p className="text-[14.5px] font-light tracking-[0.01em] text-foreground/70" data-testid="text-first-star-hint">
+                {narrow ? "Press and hold anywhere to place your first star." : "Double-click anywhere to place your first star."}
               </p>
-              <button onClick={createAtCenter} className="pointer-events-auto mt-7 rounded-full bg-primary px-5 py-2.5 text-[13.5px] font-medium text-primary-foreground transition-transform duration-500 soft-ease hover:scale-[1.03]" data-testid="button-first-star">
-                Light your first star
-              </button>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* on this day + dev tools (top right) */}
+      <div className={`absolute right-4 top-4 z-20 flex flex-col items-end gap-3 transition-opacity duration-500 md:right-6 md:top-5 ${selected ? "pointer-events-none opacity-0" : "opacity-100"} ${sky.isDemo ? "max-md:top-[6.5rem]" : ""}`}>
+        {!timelineOpen && (
+          <OnThisDay
+            hiddenNoteIds={hiddenNoteIds}
+            onOpen={(n) => {
+              setFocusNote({ starId: n.starId, noteId: n.noteId });
+              focusStar(n.starId);
+            }}
+          />
+        )}
+        {devOpen && <DevPanel starCount={sky.stars.length} onClose={() => setDevOpen(false)} />}
+      </div>
+
+      {/* recent stars */}
+      <AnimatePresence>
+        {recentOpen && !timelineOpen && (
+          <motion.div
+            key="recent"
+            initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} transition={{ duration: 0.55, ease: EASE }}
+            className={narrow
+              ? "absolute inset-x-3 top-16 z-30 max-h-[55dvh] flex flex-col"
+              : "absolute left-6 top-20 z-20 flex w-64 flex-col max-h-[calc(100dvh-22rem)] min-h-[12rem]"}
+          >
+            <RecentPanel
+              stars={sky.stars}
+              labels={sky.labels}
+              selectedId={selectedId}
+              onPick={(id) => { if (narrow) setRecentOpen(false); setFocusNote(null); focusStar(id); }}
+              onClose={() => setRecentOpen(false)}
+            />
           </motion.div>
         )}
       </AnimatePresence>
@@ -248,9 +316,14 @@ export default function SkyPage({ sky }: { sky: Sky }) {
       {/* shortcuts hint */}
       {!narrow && (
         <div className={`pointer-events-none absolute bottom-6 right-7 text-[11px] tracking-wide text-muted-foreground/60 transition-opacity duration-1000 ${toolbarVisible && !selected ? "opacity-100" : "opacity-0"}`} data-testid="text-shortcuts">
-          N new star · / search · Esc close · drag a halo to connect
+          N new star · / search · R recent · Esc close · drag a halo to connect
         </div>
       )}
+
+      {/* undo */}
+      <div className="pointer-events-auto absolute bottom-[4.75rem] left-1/2 z-30 -translate-x-1/2 md:bottom-[5.25rem]">
+        <UndoBar />
+      </div>
 
       {/* timeline or toolbar */}
       <div className="absolute bottom-5 left-1/2 z-20 w-[min(94vw,36rem)] -translate-x-1/2 md:bottom-6" style={{ pointerEvents: "none" }}>
@@ -266,6 +339,7 @@ export default function SkyPage({ sky }: { sky: Sky }) {
                   <Plus className="h-4 w-4" /> New Star
                 </button>
                 <ToolButton label="Connect stars" active={connectMode} onClick={() => { setConnectMode((v) => !v); setConnectFrom(null); setSelectedId(null); }} testId="button-connect-mode"><Link2 className="h-4 w-4" /></ToolButton>
+                <ToolButton label="Recently written" kbd="R" active={recentOpen} onClick={() => setRecentOpen((v) => !v)} testId="button-recent"><Clock className="h-4 w-4" /></ToolButton>
                 <ToolButton label="Search" kbd="/" active={searchOpen} onClick={() => setSearchOpen((v) => !v)} testId="button-search"><Search className="h-4 w-4" /></ToolButton>
                 <ToolButton label="Replay your sky" onClick={() => { setSelectedId(null); setConnectMode(false); setTimelineOpen(true); }} testId="button-timeline"><History className="h-4 w-4" /></ToolButton>
                 {!narrow && <ToolButton label="Zoom out" onClick={() => canvas.current?.zoomBy(0.75)} testId="button-zoom-out"><ZoomOut className="h-4 w-4" /></ToolButton>}
@@ -298,7 +372,7 @@ export default function SkyPage({ sky }: { sky: Sky }) {
                     <div className="my-4 h-px bg-white/[0.07]" />
                     <div className="mb-2 text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/70">Shortcuts</div>
                     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[12.5px]">
-                      {[["N", "New star"], ["/", "Search"], ["Esc", "Close card, exit modes"], ["Double-click", "Star at that spot"], ["Drag halo", "Connect two stars"]].map(([k, v]) => (
+                      {[["N", "New star"], ["/", "Search"], ["R", "Recently written"], ["Ctrl + Z", "Undo a delete"], ["Esc", "Close card, exit modes"], ["Double-click", "Star at that spot"], ["Drag halo", "Connect two stars"]].map(([k, v]) => (
                         <div key={k} className="contents"><dt className="font-medium text-foreground/90">{k}</dt><dd className="text-muted-foreground">{v}</dd></div>
                       ))}
                     </dl>
@@ -332,7 +406,7 @@ export default function SkyPage({ sky }: { sky: Sky }) {
               ? "absolute inset-x-2 bottom-2 z-30 h-[58dvh]"
               : "absolute bottom-6 right-6 top-6 z-30 w-[400px]"}
           >
-            <JournalCard star={selected} sky={sky} roots={roots} actions={actions} onClose={() => setSelectedId(null)} />
+            <JournalCard star={selected} sky={sky} roots={roots} actions={actions} onClose={() => { setSelectedId(null); setFocusNote(null); }} focusNoteId={focusNote?.starId === selected.id ? focusNote.noteId : null} />
           </motion.div>
         )}
       </AnimatePresence>

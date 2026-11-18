@@ -37,7 +37,7 @@ export default function Landing() {
                 Log in
               </button>
               <button
-                onClick={() => demo.mutate(undefined, { onSuccess: () => window.location.reload() })}
+                onClick={() => demo.mutate({ data: { tz: Intl.DateTimeFormat().resolvedOptions().timeZone } }, { onSuccess: () => window.location.reload() })}
                 disabled={demo.isPending}
                 className="rounded-full border border-white/10 bg-white/[0.03] px-6 py-3 text-[14px] text-foreground/90 backdrop-blur transition-all duration-500 soft-ease hover:bg-white/[0.07] disabled:opacity-60"
                 data-testid="button-try-demo"

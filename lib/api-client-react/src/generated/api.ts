@@ -28,7 +28,9 @@ import type {
   ConstellationInput,
   ConstellationUpdate,
   DemoSession,
+  DemoStartInput,
   ErrorEnvelope,
+  GetOnThisDayParams,
   HandleBrowserLoginCallbackParams,
   HealthStatus,
   JournalExport,
@@ -42,13 +44,16 @@ import type {
   Note,
   NoteInput,
   NoteUpdate,
+  OnThisDayNote,
   SearchResult,
   SearchSkyParams,
   Sky,
   SkyStats,
   Star,
   StarInput,
-  StarUpdate
+  StarUpdate,
+  StressInput,
+  StressResult
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -659,14 +664,28 @@ export const getStartDemoUrl = () => {
  * Creates a temporary guest account seeded with ~15 stars, 4 labels and 3 named constellations, and sets the session cookie. Afterwards all sky endpoints work for the guest.
  * @summary Start a guest demo session with a freshly seeded sample sky
  */
-export const startDemo = async ( options?: Parameters<typeof customFetch>[1]): Promise<DemoSession> => {
+export const startDemo = async (demoStartInput: DemoStartInput, options?: Parameters<typeof customFetch>[1]): Promise<DemoSession> => {
 
-  return customFetch<DemoSession>(getStartDemoUrl(),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<DemoSession>(getStartDemoUrl(),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(demoStartInput)
   }
 );}
 
@@ -677,8 +696,8 @@ export const startDemo = async ( options?: Parameters<typeof customFetch>[1]): P
 export const getStartDemoMutationKey = () => ['startDemo'] as const;
 
 export const getStartDemoMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startDemo>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof startDemo>>, TError,void, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startDemo>>, TError,StartDemoMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof startDemo>>, TError,StartDemoMutationVariables, TContext> => {
 
 const mutationKey = getStartDemoMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -690,10 +709,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startDemo>>, void> = () => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startDemo>>, StartDemoMutationVariables> = (props) => {
+          const {data} = props ?? {};
 
-
-          return  startDemo(requestOptions)
+          return  startDemo(data,requestOptions)
         }
 
 
@@ -704,19 +723,19 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type StartDemoMutationResult = NonNullable<Awaited<ReturnType<typeof startDemo>>>
-
+    export type StartDemoMutationBody = BodyType<DemoStartInput>
     export type StartDemoMutationError = ErrorType<unknown>
-
+    export type StartDemoMutationVariables = {data: BodyType<DemoStartInput>}
 
     /**
  * @summary Start a guest demo session with a freshly seeded sample sky
  */
 export const useStartDemo = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startDemo>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startDemo>>, TError,StartDemoMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof startDemo>>,
         TError,
-        void,
+        StartDemoMutationVariables,
         TContext
       > => {
       return useMutation(getStartDemoMutationOptions(options));
@@ -1033,6 +1052,252 @@ export function useSearchSky<TData = Awaited<ReturnType<typeof searchSky>>, TErr
 
 
 
+
+export const getGetOnThisDayUrl = (params: GetOnThisDayParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/on-this-day?${stringifiedParams}` : `/api/on-this-day`
+}
+
+/**
+ * @summary Notes written on today's day-of-month in an earlier month or year
+ */
+export const getOnThisDay = async (params: GetOnThisDayParams, options?: Parameters<typeof customFetch>[1]): Promise<OnThisDayNote[]> => {
+
+  return customFetch<OnThisDayNote[]>(getGetOnThisDayUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOnThisDayQueryKey = (params?: GetOnThisDayParams,) => {
+    return [
+    `/api/on-this-day`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetOnThisDayQueryOptions = <TData = Awaited<ReturnType<typeof getOnThisDay>>, TError = ErrorType<unknown>>(params: GetOnThisDayParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOnThisDay>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOnThisDayQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOnThisDay>>> = ({ signal }) => getOnThisDay(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOnThisDay>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOnThisDayQueryResult = NonNullable<Awaited<ReturnType<typeof getOnThisDay>>>
+export type GetOnThisDayQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Notes written on today's day-of-month in an earlier month or year
+ */
+
+export function useGetOnThisDay<TData = Awaited<ReturnType<typeof getOnThisDay>>, TError = ErrorType<unknown>>(
+ params: GetOnThisDayParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOnThisDay>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOnThisDayQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAddStressStarsUrl = () => {
+
+
+
+
+  return `/api/dev/stress-stars`
+}
+
+/**
+ * @summary Add random test stars to check rendering performance
+ */
+export const addStressStars = async (stressInput: StressInput, options?: Parameters<typeof customFetch>[1]): Promise<StressResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<StressResult>(getAddStressStarsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(stressInput)
+  }
+);}
+
+
+
+
+
+export const getAddStressStarsMutationKey = () => ['addStressStars'] as const;
+
+export const getAddStressStarsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addStressStars>>, TError,AddStressStarsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof addStressStars>>, TError,AddStressStarsMutationVariables, TContext> => {
+
+const mutationKey = getAddStressStarsMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof addStressStars>>, AddStressStarsMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  addStressStars(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AddStressStarsMutationResult = NonNullable<Awaited<ReturnType<typeof addStressStars>>>
+    export type AddStressStarsMutationBody = BodyType<StressInput>
+    export type AddStressStarsMutationError = ErrorType<unknown>
+    export type AddStressStarsMutationVariables = {data: BodyType<StressInput>}
+
+    /**
+ * @summary Add random test stars to check rendering performance
+ */
+export const useAddStressStars = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addStressStars>>, TError,AddStressStarsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof addStressStars>>,
+        TError,
+        AddStressStarsMutationVariables,
+        TContext
+      > => {
+      return useMutation(getAddStressStarsMutationOptions(options));
+    }
+
+export const getRemoveStressStarsUrl = () => {
+
+
+
+
+  return `/api/dev/stress-stars`
+}
+
+/**
+ * @summary Remove all test stars created by the stress test
+ */
+export const removeStressStars = async ( options?: Parameters<typeof customFetch>[1]): Promise<StressResult> => {
+
+  return customFetch<StressResult>(getRemoveStressStarsUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getRemoveStressStarsMutationKey = () => ['removeStressStars'] as const;
+
+export const getRemoveStressStarsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeStressStars>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof removeStressStars>>, TError,void, TContext> => {
+
+const mutationKey = getRemoveStressStarsMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof removeStressStars>>, void> = () => {
+
+
+          return  removeStressStars(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RemoveStressStarsMutationResult = NonNullable<Awaited<ReturnType<typeof removeStressStars>>>
+
+    export type RemoveStressStarsMutationError = ErrorType<unknown>
+
+
+    /**
+ * @summary Remove all test stars created by the stress test
+ */
+export const useRemoveStressStars = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeStressStars>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof removeStressStars>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getRemoveStressStarsMutationOptions(options));
+    }
 
 export const getCreateStarUrl = () => {
 

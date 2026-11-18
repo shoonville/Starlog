@@ -6,6 +6,7 @@ import skyRouter from "./sky";
 import starsRouter from "./stars";
 import labelsRouter from "./labels";
 import connectionsRouter from "./connections";
+import devRouter from "./dev";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(skyRouter);
 router.use(starsRouter);
 router.use(labelsRouter);
 router.use(connectionsRouter);
+router.use(devRouter);
 
 export default router;

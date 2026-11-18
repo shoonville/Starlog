@@ -31,10 +31,15 @@ A calm journal where each thought or topic is a glowing star in your own night-s
 - A constellation is stored as a name + anchor star; its members are the connected component containing the anchor, computed on the client. Deleting an anchor star re-anchors the name to a neighbour.
 - Connections are stored normalized (`from_star_id < to_star_id`) with a unique pair index.
 - `GET /api/sky` returns the whole sky in one call; notes are loaded per star when its card opens.
+- Deletes (stars and notes) are deferred on the client for 5 s so they can be undone; the item is hidden meanwhile and the DELETE is sent when the timer ends (or immediately on page close via keepalive fetch). See `artifacts/starlog/src/lib/pending-deletes.ts`.
+- Note bodies are stored as plain text with a tiny Markdown subset (`**bold**`, `*italic*`, `- ` bullets), rendered in the card and stripped for search/"On this day" snippets.
+- A star's `updatedAt` means "last written/edited": note add/edit/delete, rename and relabel bump it; moving a star does not. The recent panel sorts by it.
+- "On this day" matches notes by day-of-month in the viewer's time zone (`tz` query param). The demo seeds one note dated this day last month using the tz sent to `/demo/start`.
+- Hidden developer panel: press Shift+D in the sky (or add `?dev` to the URL) to add/remove 300 random "Stress test N" stars and watch fps.
 
 ## Product
 
-- Pan/zoom night sky; create, drag, label and connect stars; journal card with timestamped, editable notes; color-label legend with highlight; named constellations; search; timeline replay; Markdown/JSON export; keyboard shortcuts (N, Esc, /); private skies per account plus a demo sky.
+- Pan/zoom night sky; create, drag, label and connect stars; journal card with timestamped, editable notes; color-label legend with highlight; named constellations; search; timeline replay; Markdown/JSON export; keyboard shortcuts (N, /, R, Ctrl+Z, Esc); recent-stars panel; "On this day"; undo for deletes; formatted notes with word count; private skies per account plus a demo sky.
 
 ## Gotchas
 

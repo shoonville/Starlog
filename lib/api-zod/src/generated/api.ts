@@ -112,6 +112,10 @@ export const LogoutMobileSessionResponse = zod.object({
  * Creates a temporary guest account seeded with ~15 stars, 4 labels and 3 named constellations, and sets the session cookie. Afterwards all sky endpoints work for the guest.
  * @summary Start a guest demo session with a freshly seeded sample sky
  */
+export const StartDemoBody = zod.object({
+  "tz": zod.string().optional().describe('Viewer\'s IANA time zone, used to date some sample notes')
+})
+
 export const StartDemoResponse = zod.object({
   "success": zod.boolean(),
   "isDemo": zod.boolean()
@@ -192,6 +196,47 @@ export const SearchSkyResponseItem = zod.object({
   "snippet": zod.string().describe('Short excerpt around the match (the title when matchedIn is title)')
 })
 export const SearchSkyResponse = zod.array(SearchSkyResponseItem)
+
+
+/**
+ * @summary Notes written on today's day-of-month in an earlier month or year
+ */
+export const GetOnThisDayQueryParams = zod.object({
+  "tz": zod.coerce.string().describe('IANA time zone of the viewer, e.g. America/Los_Angeles')
+})
+
+export const GetOnThisDayResponseItem = zod.object({
+  "noteId": zod.number().int(),
+  "starId": zod.number().int(),
+  "starTitle": zod.string(),
+  "snippet": zod.string(),
+  "createdAt": zod.coerce.date()
+})
+export const GetOnThisDayResponse = zod.array(GetOnThisDayResponseItem)
+
+
+/**
+ * @summary Add random test stars to check rendering performance
+ */
+export const addStressStarsBodyCountMax = 500;
+
+
+
+export const AddStressStarsBody = zod.object({
+  "count": zod.number().int().min(1).max(addStressStarsBodyCountMax)
+})
+
+export const AddStressStarsResponse = zod.object({
+  "count": zod.number().int().describe('Number of test stars added or removed')
+})
+
+
+/**
+ * @summary Remove all test stars created by the stress test
+ */
+export const RemoveStressStarsResponse = zod.object({
+  "count": zod.number().int().describe('Number of test stars added or removed')
+})
 
 
 /**

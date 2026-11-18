@@ -6,7 +6,7 @@ import {
   notesTable,
   starsTable,
 } from "@workspace/db";
-import { and, asc, eq, inArray, or } from "drizzle-orm";
+import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import {
   CreateNoteBody,
   CreateNoteParams,
@@ -33,6 +33,14 @@ import {
 } from "../lib/sky";
 
 const router: IRouter = Router();
+
+/** Marks a star as recently edited (used by the recent list). */
+async function touchStar(starId: number) {
+  await db
+    .update(starsTable)
+    .set({ updatedAt: new Date() })
+    .where(eq(starsTable.id, starId));
+}
 router.use(["/stars", "/notes"], requireAuth);
 
 router.post("/stars", async (req, res) => {
@@ -70,8 +78,13 @@ router.patch("/stars/:starId", async (req, res) => {
   if (body.x !== undefined) patch.x = body.x;
   if (body.y !== undefined) patch.y = body.y;
   if (body.labelId !== undefined) patch.labelId = body.labelId;
+  // Moving a star isn't "editing" it: keep updatedAt so the recent list
+  // only reflects writing, renaming and relabeling.
+  if (body.title === undefined && body.labelId === undefined) {
+    patch.updatedAt = sql`${starsTable.updatedAt}` as unknown as Date;
+  }
 
-  if (Object.keys(patch).length) {
+  if (body.title !== undefined || body.x !== undefined || body.y !== undefined || body.labelId !== undefined) {
     const updated = await db
       .update(starsTable)
       .set(patch)
@@ -167,10 +180,7 @@ router.post("/stars/:starId/notes", async (req, res) => {
     .insert(notesTable)
     .values({ userId, starId, body: body.body })
     .returning();
-  await db
-    .update(starsTable)
-    .set({ updatedAt: new Date() })
-    .where(eq(starsTable.id, starId));
+  await touchStar(starId);
   res.status(201).json(CreateNoteResponse.parse(serializeNote(note!)));
 });
 
@@ -197,6 +207,7 @@ router.patch("/notes/:noteId", async (req, res) => {
     .set({ body: body.body, editedAt: new Date() })
     .where(eq(notesTable.id, noteId))
     .returning();
+  await touchStar(note!.starId);
   res.json(UpdateNoteResponse.parse(serializeNote(note!)));
 });
 
@@ -206,11 +217,12 @@ router.delete("/notes/:noteId", async (req, res) => {
   const deleted = await db
     .delete(notesTable)
     .where(and(eq(notesTable.id, noteId), eq(notesTable.userId, userId)))
-    .returning({ id: notesTable.id });
+    .returning({ id: notesTable.id, starId: notesTable.starId });
   if (!deleted.length) {
     res.status(404).json({ error: "Note not found" });
     return;
   }
+  await touchStar(deleted[0]!.starId);
   res.status(204).end();
 });
 

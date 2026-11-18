@@ -10,7 +10,6 @@ import {
   useDeleteConnection,
   useDeleteConstellation,
   useDeleteLabel,
-  useDeleteStar,
   useUpdateConstellation,
   useUpdateLabel,
   useUpdateStar,
@@ -19,6 +18,7 @@ import {
   type Star,
 } from "@workspace/api-client-react";
 import { toast } from "@/hooks/use-toast";
+import { scheduleDelete } from "@/lib/pending-deletes";
 
 export function useSkyActions() {
   const qc = useQueryClient();
@@ -34,7 +34,6 @@ export function useSkyActions() {
 
   const createStar = useCreateStar();
   const updateStar = useUpdateStar();
-  const deleteStar = useDeleteStar();
   const createLabel = useCreateLabel();
   const updateLabel = useUpdateLabel();
   const deleteLabel = useDeleteLabel();
@@ -69,30 +68,34 @@ export function useSkyActions() {
       updateStar.mutate({ starId: id, data: { x, y } }, { onError: fail("move that star") });
     },
     renameStar(id: number, title: string) {
-      patch((s) => ({ ...s, stars: s.stars.map((st) => (st.id === id ? { ...st, title } : st)) }));
+      patch((s) => ({ ...s, stars: s.stars.map((st) => (st.id === id ? { ...st, title, updatedAt: st.title === title ? st.updatedAt : new Date().toISOString() } : st)) }));
       updateStar.mutate({ starId: id, data: { title } }, { onError: fail("save the title") });
     },
     setStarLabel(id: number, labelId: number | null) {
-      patch((s) => recountLabels({ ...s, stars: s.stars.map((st) => (st.id === id ? { ...st, labelId } : st)) }));
+      patch((s) => recountLabels({ ...s, stars: s.stars.map((st) => (st.id === id ? { ...st, labelId, updatedAt: new Date().toISOString() } : st)) }));
       updateStar.mutate({ starId: id, data: { labelId } }, { onSuccess: refreshMeta, onError: fail("change the label") });
     },
-    removeStar(id: number) {
-      patch((s) =>
-        recountLabels({
-          ...s,
-          stars: s.stars.filter((st) => st.id !== id),
-          connections: s.connections.filter((c) => c.fromStarId !== id && c.toStarId !== id),
-        }),
-      );
-      deleteStar.mutate(
-        { starId: id },
-        {
-          onSettled: () => {
-            qc.invalidateQueries({ queryKey: getGetSkyQueryKey() });
-            refreshMeta();
-          },
-        },
-      );
+    /** Hides the star now and deletes it after the undo window. */
+    removeStar(id: number, title: string) {
+      scheduleDelete({ kind: "star", id, label: title }, () => {
+        patch((s) =>
+          recountLabels({
+            ...s,
+            stars: s.stars.filter((st) => st.id !== id),
+            connections: s.connections.filter((c) => c.fromStarId !== id && c.toStarId !== id),
+          }),
+        );
+        qc.invalidateQueries({ queryKey: getGetSkyQueryKey() });
+        refreshMeta();
+      });
+    },
+    /** Marks a star as just edited, so the recent list reorders right away. */
+    touchStar(id: number, noteDelta = 0) {
+      const now = new Date().toISOString();
+      patch((s) => ({
+        ...s,
+        stars: s.stars.map((st) => (st.id === id ? { ...st, updatedAt: now, noteCount: Math.max(0, st.noteCount + noteDelta) } : st)),
+      }));
     },
     addLabel(name: string, color: string, onDone?: (l: Label) => void) {
       createLabel.mutate(

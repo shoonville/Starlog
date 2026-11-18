@@ -28,6 +28,8 @@ tags:
     description: Guest demo sky
   - name: export
     description: Journal export
+  - name: dev
+    description: Hidden developer tools (stress test)
 paths:
   /healthz:
     get:
@@ -172,6 +174,12 @@ paths:
       operationId: startDemo
       summary: Start a guest demo session with a freshly seeded sample sky
       description: Creates a temporary guest account seeded with ~15 stars, 4 labels and 3 named constellations, and sets the session cookie. Afterwards all sky endpoints work for the guest.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DemoStartInput"
       responses:
         "200":
           description: Demo session started
@@ -242,6 +250,57 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/SearchResult"
+  /on-this-day:
+    get:
+      operationId: getOnThisDay
+      tags: [sky]
+      summary: Notes written on today's day-of-month in an earlier month or year
+      parameters:
+        - name: tz
+          in: query
+          required: true
+          description: IANA time zone of the viewer, e.g. America/Los_Angeles
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Matching notes, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OnThisDayNote"
+
+  /dev/stress-stars:
+    post:
+      operationId: addStressStars
+      tags: [dev]
+      summary: Add random test stars to check rendering performance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StressInput"
+      responses:
+        "200":
+          description: Added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StressResult"
+    delete:
+      operationId: removeStressStars
+      tags: [dev]
+      summary: Remove all test stars created by the stress test
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StressResult"
 
   /stars:
     post:
@@ -632,6 +691,13 @@ components:
         error:
           type: string
 
+    DemoStartInput:
+      type: object
+      properties:
+        tz:
+          type: string
+          description: Viewer's IANA time zone, used to date some sample notes
+
     DemoSession:
       type: object
       required: [success, isDemo]
@@ -694,6 +760,33 @@ components:
         snippet:
           type: string
           description: Short excerpt around the match (the title when matchedIn is title)
+
+    OnThisDayNote:
+      type: object
+      required: [noteId, starId, starTitle, snippet, createdAt]
+      properties:
+        noteId: { type: integer }
+        starId: { type: integer }
+        starTitle: { type: string }
+        snippet: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    StressInput:
+      type: object
+      required: [count]
+      properties:
+        count:
+          type: integer
+          minimum: 1
+          maximum: 500
+
+    StressResult:
+      type: object
+      required: [count]
+      properties:
+        count:
+          type: integer
+          description: Number of test stars added or removed
 
     Star:
       type: object

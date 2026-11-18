@@ -5,14 +5,13 @@ import {
   getGetSkyStatsQueryKey,
   getListStarNotesQueryKey,
   useCreateNote,
-  useDeleteNote,
   useListStarNotes,
   useUpdateNote,
   type Note,
   type Sky,
   type Star,
 } from "@workspace/api-client-react";
-import { Check, Plus, Trash2, X } from "lucide-react";
+import { Bold, Check, Italic, List, Plus, Trash2, X } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,6 +23,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { DEFAULT_STAR, PALETTE, formatStamp } from "@/lib/sky";
+import { FormattedNote, applyFormat, formatKeyDown, wordCount, type FormatKind } from "@/lib/note-format";
+import { scheduleDelete, usePendingDeletes } from "@/lib/pending-deletes";
 import type { SkyActions } from "@/hooks/use-sky-actions";
 
 function autosize(el: HTMLTextAreaElement | null) {
@@ -32,18 +33,57 @@ function autosize(el: HTMLTextAreaElement | null) {
   el.style.height = el.scrollHeight + "px";
 }
 
-function NoteRow({ note, onDelete }: { note: Note; onDelete: () => void }) {
+function FormatBar({ target, setValue, words, children }: { target: React.RefObject<HTMLTextAreaElement | null>; setValue: (v: string) => void; words: number; children?: React.ReactNode }) {
+  const btn = (kind: FormatKind, label: string, icon: React.ReactNode, kbd?: string) => (
+    <button
+      type="button"
+      title={kbd ? `${label} (${kbd})` : label}
+      aria-label={label}
+      // Keep focus (and the selection) in the text box.
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => target.current && applyFormat(target.current, kind, setValue)}
+      className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/80 transition-colors hover:bg-white/[0.07] hover:text-foreground"
+      data-testid={`button-format-${kind}`}
+    >
+      {icon}
+    </button>
+  );
+  const mod = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "Cmd" : "Ctrl";
+  return (
+    <div className="flex items-center gap-0.5">
+      {btn("bold", "Bold", <Bold className="h-3.5 w-3.5" />, `${mod}+B`)}
+      {btn("italic", "Italic", <Italic className="h-3.5 w-3.5" />, `${mod}+I`)}
+      {btn("bullet", "Bullet list", <List className="h-3.5 w-3.5" />)}
+      <span className="ml-2 text-[11px] tabular-nums text-muted-foreground/60" data-testid="text-word-count">
+        {words} {words === 1 ? "word" : "words"}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+function NoteRow({ note, focused, onDelete, onSaved }: { note: Note; focused: boolean; onDelete: () => void; onSaved: () => void }) {
   const qc = useQueryClient();
   const update = useUpdateNote();
   const mutateRef = useRef(update.mutate);
   mutateRef.current = update.mutate;
+  const savedRef = useRef(onSaved);
+  savedRef.current = onSaved;
   const [body, setBody] = useState(note.body);
+  const [editing, setEditing] = useState(false);
   const [saved, setSaved] = useState(false);
   const timer = useRef<number>(0);
   const pending = useRef<string | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => autosize(taRef.current), [body]);
+  useEffect(() => autosize(taRef.current), [body, editing]);
+  useEffect(() => {
+    if (editing && taRef.current) {
+      const el = taRef.current;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    }
+  }, [editing]);
 
   const flush = () => {
     const v = pending.current;
@@ -56,6 +96,7 @@ function NoteRow({ note, onDelete }: { note: Note; onDelete: () => void }) {
           qc.setQueryData<Note[]>(getListStarNotesQueryKey(note.starId), (old) =>
             old ? old.map((x) => (x.id === n.id ? n : x)) : old,
           );
+          savedRef.current();
           setSaved(true);
           window.setTimeout(() => setSaved(false), 1400);
         },
@@ -64,8 +105,19 @@ function NoteRow({ note, onDelete }: { note: Note; onDelete: () => void }) {
   };
   useEffect(() => () => { clearTimeout(timer.current); flush(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const change = (v: string) => {
+    setBody(v);
+    pending.current = v;
+    clearTimeout(timer.current);
+    timer.current = window.setTimeout(flush, 700);
+  };
+
   return (
-    <li className="group relative pl-5" data-testid={`note-${note.id}`}>
+    <li
+      className={`group relative rounded-xl pl-5 transition-[background-color,box-shadow] duration-1000 soft-ease ${focused ? "note-glow" : ""}`}
+      data-note-id={note.id}
+      data-testid={`note-${note.id}`}
+    >
       <span className="absolute left-0 top-[9px] h-1.5 w-1.5 rounded-full bg-[hsl(36_72%_82%/0.55)]" />
       <div className="mb-1 flex items-center gap-2 text-[11px] text-muted-foreground/80">
         <span data-testid={`text-note-time-${note.id}`}>{formatStamp(note.createdAt)}</span>
@@ -75,26 +127,45 @@ function NoteRow({ note, onDelete }: { note: Note; onDelete: () => void }) {
         </span>
         <button
           onClick={onDelete}
-          className="ml-auto rounded-md p-1 text-muted-foreground/60 opacity-0 transition-all duration-300 hover:bg-white/5 hover:text-[hsl(350_62%_74%)] group-hover:opacity-100 focus:opacity-100"
+          className="ml-auto rounded-md p-1 text-muted-foreground/60 opacity-0 transition-all duration-300 hover:bg-white/5 hover:text-[hsl(350_62%_74%)] group-hover:opacity-100 focus:opacity-100 max-md:opacity-60"
           aria-label="Delete note"
           data-testid={`button-delete-note-${note.id}`}
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       </div>
-      <textarea
-        ref={taRef}
-        rows={1}
-        value={body}
-        onChange={(e) => {
-          setBody(e.target.value);
-          pending.current = e.target.value;
-          clearTimeout(timer.current);
-          timer.current = window.setTimeout(flush, 700);
-        }}
-        className="quiet-input w-full resize-none overflow-hidden text-[14px] leading-relaxed text-foreground/90"
-        data-testid={`input-note-${note.id}`}
-      />
+      {editing ? (
+        <div>
+          <textarea
+            ref={taRef}
+            rows={1}
+            value={body}
+            onChange={(e) => change(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") { e.stopPropagation(); e.currentTarget.blur(); return; }
+              formatKeyDown(e, change);
+            }}
+            onBlur={() => { clearTimeout(timer.current); flush(); setEditing(false); }}
+            className="quiet-input w-full resize-none overflow-hidden text-[14px] leading-relaxed text-foreground/90"
+            data-testid={`input-note-${note.id}`}
+          />
+          <div className="mt-1 pb-1">
+            <FormatBar target={taRef} setValue={change} words={wordCount(body)} />
+          </div>
+        </div>
+      ) : (
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={(e) => { if (!(e.target as HTMLElement).closest("a")) setEditing(true); }}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); setEditing(true); } }}
+          className="cursor-text text-[14px] leading-relaxed text-foreground/90 outline-none"
+          title="Click to edit"
+          data-testid={`text-note-${note.id}`}
+        >
+          {body.trim() ? <FormattedNote body={body} /> : <span className="text-muted-foreground/60">Empty note</span>}
+        </div>
+      )}
     </li>
   );
 }
@@ -105,14 +176,15 @@ type Props = {
   roots: Map<number, number>;
   actions: SkyActions;
   onClose: () => void;
+  /** A note to scroll to and briefly highlight (e.g. from "On this day"). */
+  focusNoteId?: number | null;
 };
 
-export default function JournalCard({ star, sky, roots, actions, onClose }: Props) {
+export default function JournalCard({ star, sky, roots, actions, onClose, focusNoteId }: Props) {
   const qc = useQueryClient();
   const notesKey = getListStarNotesQueryKey(star.id);
   const notesQ = useListStarNotes(star.id, { query: { enabled: !!star.id, queryKey: notesKey } });
   const createNote = useCreateNote();
-  const deleteNote = useDeleteNote();
 
   const [title, setTitle] = useState(star.title);
   const titleTimer = useRef<number>(0);
@@ -136,10 +208,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose }: Prop
   useEffect(() => autosize(draftRef.current), [draft]);
   const listEnd = useRef<HTMLDivElement>(null);
 
-  const patchCount = (d: number) =>
-    qc.setQueryData<Sky>(getGetSkyQueryKey(), (old) =>
-      old ? { ...old, stars: old.stars.map((s) => (s.id === star.id ? { ...s, noteCount: Math.max(0, s.noteCount + d) } : s)) } : old,
-    );
+  const pendingDeletes = usePendingDeletes();
 
   const addNote = () => {
     const body = draft.trim();
@@ -149,7 +218,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose }: Prop
       {
         onSuccess: (n) => {
           qc.setQueryData<Note[]>(notesKey, (old) => [...(old ?? []), n]);
-          patchCount(1);
+          actions.touchStar(star.id, 1);
           qc.invalidateQueries({ queryKey: getGetSkyStatsQueryKey() });
           setDraft("");
           window.setTimeout(() => listEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" }), 60);
@@ -157,10 +226,22 @@ export default function JournalCard({ star, sky, roots, actions, onClose }: Prop
       },
     );
   };
-  const removeNote = (id: number) => {
-    qc.setQueryData<Note[]>(notesKey, (old) => old?.filter((n) => n.id !== id));
-    patchCount(-1);
-    deleteNote.mutate({ noteId: id }, { onSettled: () => qc.invalidateQueries({ queryKey: getGetSkyStatsQueryKey() }) });
+  const [confirmNote, setConfirmNote] = useState<Note | null>(null);
+  const removeNote = (n: Note) => {
+    const starId = star.id;
+    const snippet = n.body.replace(/[*\n]+/g, " ").trim();
+    scheduleDelete(
+      { kind: "note", id: n.id, starId, label: snippet ? `Note "${snippet.length > 28 ? snippet.slice(0, 27) + "…" : snippet}"` : "Note" },
+      () => {
+        qc.setQueryData<Note[]>(getListStarNotesQueryKey(starId), (old) => old?.filter((x) => x.id !== n.id));
+        qc.setQueryData<Sky>(getGetSkyQueryKey(), (old) =>
+          old
+            ? { ...old, stars: old.stars.map((s) => (s.id === starId ? { ...s, noteCount: Math.max(0, s.noteCount - 1), updatedAt: new Date().toISOString() } : s)) }
+            : old,
+        );
+        qc.invalidateQueries({ queryKey: getGetSkyStatsQueryKey() });
+      },
+    );
   };
 
   // labels
@@ -181,7 +262,20 @@ export default function JournalCard({ star, sky, roots, actions, onClose }: Prop
   };
 
   const [confirm, setConfirm] = useState(false);
-  const notes = notesQ.data ?? [];
+  const hiddenNotes = useMemo(() => new Set(pendingDeletes.filter((p) => p.kind === "note").map((p) => p.id)), [pendingDeletes]);
+  const notes = useMemo(() => (notesQ.data ?? []).filter((n) => !hiddenNotes.has(n.id)), [notesQ.data, hiddenNotes]);
+
+  // Scroll to and briefly highlight a requested note.
+  const [glowNote, setGlowNote] = useState<number | null>(null);
+  useEffect(() => {
+    if (focusNoteId == null || !notes.some((n) => n.id === focusNoteId)) return;
+    setGlowNote(focusNoteId);
+    const t1 = window.setTimeout(() => {
+      document.querySelector(`[data-note-id="${focusNoteId}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 120);
+    const t2 = window.setTimeout(() => setGlowNote(null), 3200);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [focusNoteId, notes.length > 0]); // eslint-disable-line react-hooks/exhaustive-deps
   const dot = label?.color ?? DEFAULT_STAR;
 
   return (
@@ -313,7 +407,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose }: Prop
         ) : (
           <ul className="space-y-6">
             {notes.map((n) => (
-              <NoteRow key={n.id} note={n} onDelete={() => removeNote(n.id)} />
+              <NoteRow key={n.id} note={n} focused={glowNote === n.id} onDelete={() => setConfirmNote(n)} onSaved={() => actions.touchStar(star.id)} />
             ))}
           </ul>
         )}
@@ -328,13 +422,18 @@ export default function JournalCard({ star, sky, roots, actions, onClose }: Prop
             rows={2}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); addNote(); } }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); addNote(); return; }
+              formatKeyDown(e, setDraft);
+            }}
             placeholder="Write something down..."
-            className="quiet-input thin-scroll max-h-48 w-full resize-none text-[14px] leading-relaxed"
+            className="quiet-input thin-scroll max-h-[38vh] w-full resize-none text-[14px] leading-relaxed"
             data-testid="input-new-note"
           />
-          <div className="flex items-center justify-between pt-1">
-            <span className="text-[11px] text-muted-foreground/60">Ctrl + Enter to add</span>
+          <div className="flex items-center justify-between gap-2 pt-1">
+            <FormatBar target={draftRef} setValue={setDraft} words={wordCount(draft)}>
+              <span className="ml-2 text-[11px] text-muted-foreground/40 max-sm:hidden">· Ctrl + Enter to add</span>
+            </FormatBar>
             <button
               onClick={addNote}
               disabled={!draft.trim() || createNote.isPending}
@@ -384,19 +483,40 @@ export default function JournalCard({ star, sky, roots, actions, onClose }: Prop
         </button>
       </div>
 
-      <AlertDialog open={confirm} onOpenChange={setConfirm}>
+      <AlertDialog open={confirmNote != null} onOpenChange={(o) => { if (!o) setConfirmNote(null); }}>
         <AlertDialogContent className="sky-glass max-w-sm rounded-2xl border-0">
           <AlertDialogHeader>
-            <AlertDialogTitle className="font-medium">Let this star go?</AlertDialogTitle>
+            <AlertDialogTitle className="font-medium">Delete this note?</AlertDialogTitle>
             <AlertDialogDescription>
-              "{star.title}" and its {star.noteCount} {star.noteCount === 1 ? "note" : "notes"} will be removed from your sky, along with its lines.
+              {confirmNote ? `Written ${formatStamp(confirmNote.createdAt)}. You'll have a few seconds to undo.` : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="rounded-full border-white/10 bg-transparent">Keep it</AlertDialogCancel>
             <AlertDialogAction
               className="rounded-full bg-[hsl(350_55%_68%)] text-[hsl(258_40%_10%)] hover:bg-[hsl(350_55%_72%)]"
-              onClick={() => { actions.removeStar(star.id); onClose(); }}
+              onClick={() => { if (confirmNote) removeNote(confirmNote); setConfirmNote(null); }}
+              data-testid="button-confirm-delete-note"
+            >
+              Delete note
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirm} onOpenChange={setConfirm}>
+        <AlertDialogContent className="sky-glass max-w-sm rounded-2xl border-0">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-medium">Let this star go?</AlertDialogTitle>
+            <AlertDialogDescription>
+              "{star.title}" and its {star.noteCount} {star.noteCount === 1 ? "note" : "notes"} will be removed from your sky, along with its lines. You'll have a few seconds to undo.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-full border-white/10 bg-transparent">Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              className="rounded-full bg-[hsl(350_55%_68%)] text-[hsl(258_40%_10%)] hover:bg-[hsl(350_55%_72%)]"
+              onClick={() => { actions.removeStar(star.id, star.title); onClose(); }}
               data-testid="button-confirm-delete-star"
             >
               Delete star

@@ -51,6 +51,11 @@ export interface ErrorEnvelope {
   error: string;
 }
 
+export interface DemoStartInput {
+  /** Viewer's IANA time zone, used to date some sample notes */
+  tz?: string;
+}
+
 export interface DemoSession {
   success: boolean;
   isDemo: boolean;
@@ -131,6 +136,27 @@ export interface SearchResult {
   matchedIn: SearchResultMatchedIn;
   /** Short excerpt around the match (the title when matchedIn is title) */
   snippet: string;
+}
+
+export interface OnThisDayNote {
+  noteId: number;
+  starId: number;
+  starTitle: string;
+  snippet: string;
+  createdAt: string;
+}
+
+export interface StressInput {
+  /**
+     * @minimum 1
+     * @maximum 500
+     */
+  count: number;
+}
+
+export interface StressResult {
+  /** Number of test stars added or removed */
+  count: number;
 }
 
 export interface StarInput {
@@ -268,5 +294,12 @@ returnTo?: string;
 
 export type SearchSkyParams = {
 q: string;
+};
+
+export type GetOnThisDayParams = {
+/**
+ * IANA time zone of the viewer, e.g. America/Los_Angeles
+ */
+tz: string;
 };
 

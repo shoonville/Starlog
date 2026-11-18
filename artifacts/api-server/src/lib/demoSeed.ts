@@ -246,7 +246,45 @@ const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
 /** Seeds a fresh sample sky for a (guest) user inside a transaction. */
-export async function seedDemoSky(tx: Tx, userId: string) {
+function validZone(tz: string | undefined) {
+  if (!tz) return "UTC";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return tz;
+  } catch {
+    return "UTC";
+  }
+}
+
+/** Local parts of an instant in a time zone. */
+function zoneParts(ms: number, tz: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+  }).formatToParts(new Date(ms));
+  const get = (t: string) => Number(parts.find((p) => p.type === t)!.value);
+  return { y: get("year"), m: get("month"), d: get("day"), h: get("hour"), min: get("minute") };
+}
+
+/** Local noon on the same day-of-month last month, or null if that day doesn't exist. */
+function sameDayLastMonth(now: number, tzIn: string | undefined) {
+  const tz = validZone(tzIn);
+  const today = zoneParts(now, tz);
+  const y = today.m === 1 ? today.y - 1 : today.y;
+  const m = today.m === 1 ? 12 : today.m - 1;
+  const guess = Date.UTC(y, m - 1, today.d, 12);
+  if (new Date(guess).getUTCDate() !== today.d) return null;
+  const local = zoneParts(guess, tz);
+  const offset = Date.UTC(local.y, local.m - 1, local.d, local.h, local.min) - guess;
+  return new Date(guess - offset);
+}
+
+export async function seedDemoSky(tx: Tx, userId: string, tz?: string) {
   const now = Date.now();
 
   const labelRows = await tx
@@ -296,6 +334,18 @@ export async function seedDemoSky(tx: Tx, userId: string) {
         };
       });
     if (notes.length) await tx.insert(notesTable).values(notes);
+  }
+
+  // A note written on this day last month (in the viewer's zone), so
+  // "On this day" has something to show.
+  const monthAgo = sameDayLastMonth(now, tz);
+  if (monthAgo) {
+    await tx.insert(notesTable).values({
+      userId,
+      starId: starIds.get("books")!,
+      body: "Found an old postcard of a lighthouse at the market. The **lighthouse book** keeps coming back to me.",
+      createdAt: monthAgo,
+    });
   }
 
   await tx.insert(connectionsTable).values(

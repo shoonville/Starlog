@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { Router, type IRouter } from "express";
 import { db, usersTable } from "@workspace/db";
 import { and, eq, lt } from "drizzle-orm";
-import { EndDemoResponse, StartDemoResponse } from "@workspace/api-zod";
+import { EndDemoResponse, StartDemoBody, StartDemoResponse } from "@workspace/api-zod";
 import {
   SESSION_COOKIE,
   SESSION_TTL,
@@ -19,6 +19,7 @@ const router: IRouter = Router();
 const GUEST_MAX_AGE_MS = 2 * 24 * 60 * 60 * 1000;
 
 router.post("/demo/start", async (req, res) => {
+  const { tz } = StartDemoBody.parse(req.body ?? {});
   // Opportunistic cleanup of stale guest skies.
   await db
     .delete(usersTable)
@@ -43,7 +44,7 @@ router.post("/demo/start", async (req, res) => {
       firstName: "Stargazer",
       isGuest: true,
     });
-    await seedDemoSky(tx, guestId);
+    await seedDemoSky(tx, guestId, tz);
   });
 
   const sid = await createSession({

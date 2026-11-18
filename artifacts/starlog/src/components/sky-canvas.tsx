@@ -470,8 +470,25 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
         const al = Math.min(aa.a, ab.a) * Math.min(aa.dim, ab.dim);
         if (al < 0.01) continue;
         const hov = s.hoverLine === c.id;
-        ctx.strokeStyle = hov ? `rgba(244,214,190,${0.75 * al})` : `rgba(214,200,250,${0.24 * al})`;
-        ctx.lineWidth = hov ? 1.6 : 1;
+        // Lines touching a hovered star glow softly (eased via the star's hover value).
+        const glow = p.connectMode || s.link ? 0 : Math.max(aa.hover, ab.hover);
+        if (glow > 0.02 && !hov) {
+          ctx.strokeStyle = `rgba(244,224,196,${0.09 * glow * al})`;
+          ctx.lineWidth = 6;
+          ctx.beginPath();
+          ctx.moveTo(pa.x, pa.y);
+          ctx.lineTo(pb.x, pb.y);
+          ctx.stroke();
+          ctx.strokeStyle = `rgba(244,224,196,${0.16 * glow * al})`;
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
+        ctx.strokeStyle = hov
+          ? `rgba(244,214,190,${0.75 * al})`
+          : glow > 0.02
+            ? `rgba(${Math.round(214 + 30 * glow)},${Math.round(200 + 24 * glow)},${Math.round(250 - 54 * glow)},${(0.24 + 0.4 * glow) * al})`
+            : `rgba(214,200,250,${0.24 * al})`;
+        ctx.lineWidth = hov ? 1.6 : 1 + 0.3 * glow;
         ctx.beginPath();
         ctx.moveTo(pa.x, pa.y);
         ctx.lineTo(pb.x, pb.y);

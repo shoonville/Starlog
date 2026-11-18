@@ -7,11 +7,13 @@ import {
   connectionsTable,
   constellationsTable,
 } from "@workspace/db";
-import { and, asc, count, desc, eq, gte, ilike, inArray, min, max } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, ilike, inArray, min, max, sql } from "drizzle-orm";
 import {
   ExportJsonResponse,
   GetSkyResponse,
   GetSkyStatsResponse,
+  GetOnThisDayQueryParams,
+  GetOnThisDayResponse,
   SearchSkyQueryParams,
   SearchSkyResponse,
 } from "@workspace/api-zod";
@@ -100,8 +102,16 @@ function escapeLike(s: string) {
   return s.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
+/** Note body with the light formatting markers (bold, italic, bullets) removed. */
+export function plainText(text: string) {
+  return text
+    .replace(/^\s*[-*]\s+/gm, "")
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/\*(.+?)\*/g, "$1");
+}
+
 function snippetAround(text: string, query: string, radius = 60) {
-  const flat = text.replace(/\s+/g, " ").trim();
+  const flat = plainText(text).replace(/\s+/g, " ").trim();
   const i = flat.toLowerCase().indexOf(query.toLowerCase());
   if (i < 0) return flat.slice(0, radius * 2);
   const start = Math.max(0, i - radius);
@@ -162,6 +172,68 @@ router.get("/search", requireAuth, async (req, res) => {
   }
 
   res.json(SearchSkyResponse.parse([...results.values()].slice(0, 50)));
+});
+
+function isValidTimeZone(tz: string) {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+router.get("/on-this-day", requireAuth, async (req, res) => {
+  const userId = currentUserId(req);
+  const { tz } = GetOnThisDayQueryParams.parse(req.query);
+  if (!isValidTimeZone(tz)) {
+    res.status(400).json({ error: "Unknown time zone" });
+    return;
+  }
+  // Today's date in the viewer's zone, as YYYY-MM-DD.
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  const day = Number(today.slice(8, 10));
+  const local = sql`(${notesTable.createdAt} at time zone ${tz})`;
+
+  const rows = await db
+    .select({
+      noteId: notesTable.id,
+      starId: notesTable.starId,
+      starTitle: starsTable.title,
+      body: notesTable.body,
+      createdAt: notesTable.createdAt,
+    })
+    .from(notesTable)
+    .innerJoin(starsTable, eq(starsTable.id, notesTable.starId))
+    .where(
+      and(
+        eq(notesTable.userId, userId),
+        sql`extract(day from ${local}) = ${day}`,
+        sql`${local}::date < ${today}::date`,
+      ),
+    )
+    .orderBy(desc(notesTable.createdAt))
+    .limit(20);
+
+  res.json(
+    GetOnThisDayResponse.parse(
+      rows.map((r) => {
+        const flat = plainText(r.body).replace(/\s+/g, " ").trim();
+        return {
+          noteId: r.noteId,
+          starId: r.starId,
+          starTitle: r.starTitle,
+          snippet: flat.length > 140 ? `${flat.slice(0, 139)}…` : flat,
+          createdAt: r.createdAt.toISOString(),
+        };
+      }),
+    ),
+  );
 });
 
 async function buildExport(userId: string) {
