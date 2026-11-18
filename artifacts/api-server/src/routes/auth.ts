@@ -55,10 +55,19 @@ function getSafeReturnTo(value: unknown): string {
   if (
     typeof value !== 'string' ||
     !value.startsWith('/') ||
-    value.startsWith('//')
+    value.startsWith('//') ||
+    value.includes('\\')
   ) {
     return '/';
   }
+
+  // URL parsers used by browsers treat backslashes as path separators for
+  // special schemes. Keep this same-origin check as defense in depth.
+  const resolvedUrl = new URL(value, 'https://starlog.invalid');
+  if (resolvedUrl.origin !== 'https://starlog.invalid') {
+    return '/';
+  }
+
   return value;
 }
 
