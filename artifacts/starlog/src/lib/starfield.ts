@@ -1,6 +1,6 @@
 import { hexToRgb } from "./sky";
 
-type Dot = { x: number; y: number; r: number; a: number };
+type Dot = { x: number; y: number; r: number; a: number; c: string };
 type Twinkler = Dot & { sp: number; ph: number };
 type Layer = { depth: number; dots: Dot[]; tile: HTMLCanvasElement | null };
 
@@ -14,8 +14,34 @@ function rng(seed: number) {
 
 const mod = (v: number, m: number) => ((v % m) + m) % m;
 
+/** Mostly plain white, with a slight mix of cool blue-white and warm white. */
+function tint(r: () => number) {
+  const k = r();
+  if (k < 0.24) return "#d4e0ff";
+  if (k < 0.42) return "#fff0dc";
+  if (k < 0.5) return "#e6ecff";
+  return "#ffffff";
+}
+
 /**
- * Faint decorative starfield on a true-black sky.
+ * A background dot: mostly small and faint, some medium, a few brighter.
+ * Radii stay well under the smallest journal star (2.2px + glow), and there is no glow,
+ * so they never read as something to tap.
+ */
+function dot(r: () => number, far: boolean): Dot {
+  const k = r();
+  const x = r(), y = r(), c = tint(r);
+  if (far) {
+    if (k < 0.9) return { x, y, r: 0.45 + r() * 0.15, a: 0.14 + r() * 0.16, c };
+    return { x, y, r: 0.65 + r() * 0.2, a: 0.3 + r() * 0.15, c };
+  }
+  if (k < 0.72) return { x, y, r: 0.5 + r() * 0.2, a: 0.18 + r() * 0.17, c };
+  if (k < 0.95) return { x, y, r: 0.8 + r() * 0.25, a: 0.34 + r() * 0.18, c };
+  return { x, y, r: 1.1 + r() * 0.25, a: 0.62 + r() * 0.2, c };
+}
+
+/**
+ * Decorative starfield on a true-black sky.
  * Dots are rendered once into offscreen tiles (one per depth layer) and blitted with a
  * parallax offset each frame; only a handful of slow twinklers are drawn per frame.
  * Positions are normalized (0..1) so the field keeps its layout across resizes.
@@ -30,21 +56,19 @@ export class Starfield {
   constructor(seed = 7) {
     const r = rng(seed);
     // Generated for up to 4,000,000 CSS px²; the viewport area decides how many are used.
-    const far: Dot[] = Array.from({ length: 560 }, () => ({ x: r(), y: r(), r: 0.5, a: 0.06 + r() * 0.1 }));
-    const near: Dot[] = Array.from({ length: 280 }, () => {
-      const big = r() < 0.3;
-      return { x: r(), y: r(), r: big ? 0.85 + r() * 0.15 : 0.5 + r() * 0.2, a: 0.1 + r() * 0.15 };
-    });
+    const far: Dot[] = Array.from({ length: 600 }, () => dot(r, true));
+    const near: Dot[] = Array.from({ length: 300 }, () => dot(r, false));
     this.layers = [
       { depth: 0.5, dots: far, tile: null },
       { depth: 0.72, dots: near, tile: null },
     ];
-    this.twinklers = Array.from({ length: 48 }, () => ({
+    this.twinklers = Array.from({ length: 40 }, () => ({
       x: r(),
       y: r(),
-      r: 0.55 + r() * 0.35,
-      a: 0.13 + r() * 0.13,
-      sp: (Math.PI * 2) / (9 + r() * 9), // one slow breath every 9–18s
+      r: 0.7 + r() * 0.45,
+      a: 0.4 + r() * 0.3,
+      c: tint(r),
+      sp: (Math.PI * 2) / (7 + r() * 8), // one slow breath every 7–15s
       ph: r() * Math.PI * 2,
     }));
   }
@@ -62,7 +86,6 @@ export class Starfield {
       tile.height = H;
       const g = tile.getContext("2d")!;
       g.clearRect(0, 0, W, H);
-      g.fillStyle = "#ffffff";
       const n = Math.min(layer.dots.length, Math.ceil((layer.dots.length / 4) * Math.max(0.4, area)));
       for (let i = 0; i < n; i++) {
         const d = layer.dots[i];
@@ -70,6 +93,7 @@ export class Starfield {
         const y = Math.round(d.y * H) + 0.5;
         const rad = d.r * dpr;
         g.globalAlpha = d.a;
+        g.fillStyle = d.c;
         // draw wrapped copies near edges so the tile repeats seamlessly
         for (const ox of x < 3 ? [0, W] : x > W - 3 ? [0, -W] : [0]) {
           for (const oy of y < 3 ? [0, H] : y > H - 3 ? [0, -H] : [0]) {
@@ -105,14 +129,15 @@ export class Starfield {
       if (ox > 0 && oy > 0) ctx.drawImage(tile, ox - W, oy - H);
     }
     const depth = this.layers[1].depth;
-    const n = Math.max(5, Math.min(this.twinklers.length, Math.round((this.twinklers.length / 4) * (w * h) / 1_000_000)));
-    ctx.fillStyle = "#ffffff";
+    const n = Math.max(6, Math.min(this.twinklers.length, Math.round((this.twinklers.length / 4) * (w * h) / 1_000_000)));
     for (let i = 0; i < n; i++) {
       const s = this.twinklers[i];
       const x = Math.round(mod(s.x * W - offX * depth * dpr, W)) + 0.5;
       const y = Math.round(mod(s.y * H - offY * depth * dpr, H)) + 0.5;
+      // gentle: never fully out, eased so the swell is soft
       const k = 0.5 + 0.5 * Math.sin(t * s.sp + s.ph);
-      ctx.globalAlpha = s.a * (0.25 + 0.75 * k * k);
+      ctx.globalAlpha = s.a * (0.3 + 0.7 * k * k);
+      ctx.fillStyle = s.c;
       ctx.beginPath();
       ctx.arc(x, y, s.r * dpr, 0, Math.PI * 2);
       ctx.fill();

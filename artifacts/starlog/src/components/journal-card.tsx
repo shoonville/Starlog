@@ -22,7 +22,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { DEFAULT_STAR, PALETTE, formatStamp } from "@/lib/sky";
+import { DEFAULT_STAR, PALETTE, constellationTint, formatStamp, type ConstellationView } from "@/lib/sky";
 import { TaskComposer, TaskList } from "@/components/task-list";
 import { FormattedNote, applyFormat, formatKeyDown, wordCount, type FormatKind } from "@/lib/note-format";
 import { scheduleDelete, usePendingDeletes } from "@/lib/pending-deletes";
@@ -190,6 +190,9 @@ type Props = {
   onTabChange: (tab: CardTab) => void;
   /** Opens another star (from the constellation chips). */
   onSwitchStar: (id: number) => void;
+  /** Named constellations, for the switcher above the chips. */
+  constellations: ConstellationView[];
+  onPickConstellation: (cv: ConstellationView) => void;
 };
 
 export type CardTab = "notes" | "tasks";
@@ -224,7 +227,57 @@ function StarSwitcher({ members, currentId, colorOf, onPick }: { members: Star[]
   );
 }
 
-export default function JournalCard({ star, sky, roots, actions, onClose, onStartConnect, sheetHeight, onSheetHeightChange, narrow, focusNoteId, tab, onTabChange, onSwitchStar }: Props) {
+/** One thin line naming this star's constellation, tinted like its name on the sky; opens a list of all constellations. */
+function ConstellationSwitcher({ name, tint, all, currentId, tintOf, onPick }: {
+  name: string | null;
+  tint: [number, number, number];
+  all: ConstellationView[];
+  currentId: number | null;
+  tintOf: (cv: ConstellationView) => [number, number, number];
+  onPick: (cv: ConstellationView) => void;
+}) {
+  const rgb = tint.join(",");
+  return (
+    <div className="px-5 md:px-6">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            className="-mx-1 flex h-11 max-w-full items-center gap-1.5 rounded-lg px-1 text-[11px] font-medium uppercase tracking-[0.16em] outline-none transition-opacity hover:opacity-100 focus-visible:ring-1 focus-visible:ring-white/20 md:h-8"
+            style={{ color: `rgba(${rgb},${name ? 0.85 : 0.5})` }}
+            aria-label={name ? `Constellation ${name}. Switch constellation` : "Switch constellation"}
+            data-testid="button-constellation-switcher"
+          >
+            <span className="truncate">{name ?? "Unnamed constellation"}</span>
+            <ChevronDown className="h-3 w-3 shrink-0 opacity-80" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" sideOffset={4} className="sheet-panel max-h-[50dvh] w-64 overflow-y-auto rounded-2xl p-1.5" data-testid="menu-constellations">
+          <div className="px-3 pb-1 pt-1 text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/70">Constellations</div>
+          {all.length ? all.map((cv) => {
+            const c = tintOf(cv).join(",");
+            const current = cv.id === currentId;
+            return (
+              <DropdownMenuItem
+                key={cv.id}
+                onSelect={() => { if (!current) onPick(cv); }}
+                className={`min-h-11 gap-3 rounded-lg px-3 text-[13.5px] md:min-h-9 ${current ? "text-foreground" : "text-foreground/80"}`}
+                data-testid={`menu-constellation-${cv.id}`}
+              >
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: `rgb(${c})`, boxShadow: current ? `0 0 8px rgb(${c})` : undefined }} />
+                <span className="flex-1 truncate">{cv.name}</span>
+                <span className="text-[11px] tabular-nums text-muted-foreground/70">{current ? "Here" : cv.members.length}</span>
+              </DropdownMenuItem>
+            );
+          }) : (
+            <div className="px-3 py-2.5 text-[12.5px] text-muted-foreground/75">No named constellations yet. Name this one at the bottom of the card.</div>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+export default function JournalCard({ star, sky, roots, actions, onClose, onStartConnect, sheetHeight, onSheetHeightChange, narrow, focusNoteId, tab, onTabChange, onSwitchStar, constellations, onPickConstellation }: Props) {
   const qc = useQueryClient();
   const notesKey = getListStarNotesQueryKey(star.id);
   const notesQ = useListStarNotes(star.id, { query: { enabled: !!star.id, queryKey: notesKey } });
@@ -315,6 +368,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
   // labels
   const [newLabel, setNewLabel] = useState<{ name: string; color: string } | null>(null);
   const [labelPickerOpen, setLabelPickerOpen] = useState(false);
+  const [dotPickerOpen, setDotPickerOpen] = useState(false);
   const label = sky.labels.find((l) => l.id === star.labelId) ?? null;
 
   // constellation
@@ -326,6 +380,8 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
   const [openTaskId, setOpenTaskId] = useState<number | null>(null);
   useEffect(() => setOpenTaskId(null), [star.id]);
   const constellation = sky.constellations.find((c) => roots.get(c.anchorStarId) === root) ?? null;
+  const starById = useMemo(() => new Map(sky.stars.map((s) => [s.id, s])), [sky.stars]);
+  const tintOf = (ids: number[]) => constellationTint(ids.map((id) => starById.get(id)).filter((s): s is Star => !!s).map(colorOfStar));
   const [cName, setCName] = useState(constellation?.name ?? "");
   useEffect(() => setCName(constellation?.name ?? ""), [constellation?.id, constellation?.name]);
   const saveConstellation = () => {
@@ -352,6 +408,85 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
   }, [focusNoteId, notes.length > 0]); // eslint-disable-line react-hooks/exhaustive-deps
   const dot = label?.color ?? DEFAULT_STAR;
 
+  /** Label list + new-label form, shared by the color dot and the phone label chip. */
+  const labelMenu = (close: () => void) => (
+    <>
+      <div className="mb-1 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-muted-foreground/70">Choose a label</div>
+      <button
+        onClick={() => { actions.setStarLabel(star.id, null); close(); }}
+        className="flex min-h-10 w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-[12.5px] text-foreground/85 hover:bg-white/[0.06]"
+        data-testid="button-label-none"
+      >
+        <span className="h-2 w-2 rounded-full" style={{ background: DEFAULT_STAR }} /> Unlabeled
+      </button>
+      {sky.labels.map((l) => (
+        <button
+          key={l.id}
+          onClick={() => { actions.setStarLabel(star.id, l.id); close(); }}
+          className={`flex min-h-10 w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-[12.5px] hover:bg-white/[0.06] ${star.labelId === l.id ? "text-foreground" : "text-foreground/80"}`}
+          data-testid={`button-label-${l.id}`}
+        >
+          <span className="h-2 w-2 rounded-full" style={{ background: l.color }} />
+          {l.name}
+        </button>
+      ))}
+      {!newLabel && (
+        <button
+          onClick={() => setNewLabel({ name: "", color: PALETTE[sky.labels.length % PALETTE.length].hex })}
+          className="mt-1 flex min-h-10 w-full items-center gap-2 rounded-xl px-2.5 py-2 text-[12px] text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
+          data-testid="button-new-label-inline"
+        >
+          <Plus className="h-3 w-3" /> New label
+        </button>
+      )}
+      {newLabel && (
+        <div className="mt-1 rounded-xl bg-white/[0.04] p-3">
+          <input
+            autoFocus
+            value={newLabel.name}
+            maxLength={40}
+            onChange={(e) => setNewLabel({ ...newLabel, name: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && newLabel.name.trim()) {
+                actions.addLabel(newLabel.name.trim(), newLabel.color, (l) => { actions.setStarLabel(star.id, l.id); close(); });
+                setNewLabel(null);
+              }
+              if (e.key === "Escape") { e.stopPropagation(); setNewLabel(null); }
+            }}
+            placeholder="Label name"
+            className="quiet-input mb-2.5 w-full text-[13px]"
+            data-testid="input-new-label-name"
+          />
+          <div className="flex flex-wrap items-center gap-1.5">
+            {PALETTE.map((p) => (
+              <button
+                key={p.hex}
+                title={p.name}
+                onClick={() => setNewLabel({ ...newLabel, color: p.hex })}
+                className={`h-5 w-5 rounded-full transition-transform duration-300 soft-ease ${newLabel.color === p.hex ? "scale-110 ring-2 ring-white/50 ring-offset-2 ring-offset-[#111114]" : "hover:scale-110"}`}
+                style={{ background: p.hex }}
+              />
+            ))}
+            <div className="ml-auto flex gap-1">
+              <button onClick={() => setNewLabel(null)} className="rounded-md px-2 py-1 text-[12px] text-muted-foreground hover:text-foreground">Cancel</button>
+              <button
+                disabled={!newLabel.name.trim()}
+                onClick={() => {
+                  actions.addLabel(newLabel.name.trim(), newLabel.color, (l) => { actions.setStarLabel(star.id, l.id); close(); });
+                  setNewLabel(null);
+                }}
+                className="rounded-md bg-primary/90 px-2.5 py-1 text-[12px] font-medium text-primary-foreground disabled:opacity-40"
+                data-testid="button-create-label-inline"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
   return (
     <div className="sky-glass relative flex h-full max-h-full flex-col overflow-hidden rounded-[22px]" data-testid="card-journal">
       {narrow && (
@@ -366,11 +501,37 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
           <span className="h-1 w-10 rounded-full bg-white/20" />
         </div>
       )}
-      {members.length > 1 && <div className="pt-2 md:pt-5"><StarSwitcher members={members} currentId={star.id} colorOf={colorOfStar} onPick={onSwitchStar} /></div>}
+      {members.length > 1 && (
+        <div className="md:pt-3">
+          <ConstellationSwitcher
+            name={constellation?.name ?? null}
+            tint={tintOf(members.map((m) => m.id))}
+            all={constellations}
+            currentId={constellation?.id ?? null}
+            tintOf={(cv) => tintOf(cv.members)}
+            onPick={onPickConstellation}
+          />
+          <StarSwitcher members={members} currentId={star.id} colorOf={colorOfStar} onPick={onSwitchStar} />
+        </div>
+      )}
       <div
-        className={`relative flex items-center gap-0.5 px-5 pb-3 md:items-start md:gap-3 md:px-6 ${members.length > 1 ? "pt-3" : narrow ? "pt-1" : "pt-6"}`}
+        className={`relative flex items-center gap-0.5 px-5 pb-3 md:px-6 ${members.length > 1 ? "pt-3" : narrow ? "pt-1" : "pt-5"}`}
       >
-        <span className="mt-[11px] h-2.5 w-2.5 shrink-0 transition-colors duration-700" style={{ background: dot, boxShadow: `0 0 14px ${dot}` }} />
+        <Popover open={dotPickerOpen} onOpenChange={(o) => { setDotPickerOpen(o); if (!o) setNewLabel(null); }}>
+          <PopoverTrigger asChild>
+            <button
+              className="-my-2 -ml-2 flex h-11 w-7 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-1 focus-visible:ring-white/25 md:my-0 md:h-9"
+              aria-label={`Color: ${label?.name ?? "Unlabeled"}. Change`}
+              title="Change color"
+              data-testid="button-star-color"
+            >
+              <span className="h-2.5 w-2.5 rounded-full transition-colors duration-700" style={{ background: dot, boxShadow: `0 0 10px ${dot}` }} />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" side="bottom" className="sky-glass w-64 rounded-2xl border-0 p-2">
+            {labelMenu(() => setDotPickerOpen(false))}
+          </PopoverContent>
+        </Popover>
         <input
           value={title}
           onChange={(e) => {
@@ -449,7 +610,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <button onClick={onClose} className="mt-1 rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground max-md:-my-2 max-md:mt-0 max-md:flex max-md:h-11 max-md:w-11 max-md:items-center max-md:justify-center max-md:p-0" aria-label="Close" data-testid="button-close-card">
+        <button onClick={onClose} className="-my-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground md:my-0 md:-mr-2 md:h-9 md:w-9" aria-label="Close" data-testid="button-close-card">
           <X className="h-4 w-4" />
         </button>
       </div>
@@ -459,7 +620,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
 
       {/* label picker */}
       <div className="px-5 pb-3 md:px-6 md:pb-4">
-        {narrow ? <Popover open={labelPickerOpen} onOpenChange={setLabelPickerOpen}>
+        {narrow ? <Popover open={labelPickerOpen} onOpenChange={(o) => { setLabelPickerOpen(o); if (!o) setNewLabel(null); }}>
           <PopoverTrigger asChild>
             <button className="flex items-center gap-2 rounded-full border border-white/[0.09] bg-white/[0.045] px-3 py-1.5 text-[12px] text-foreground/85 transition-colors hover:bg-white/[0.08]" data-testid="button-current-label">
               <span className="h-2 w-2 rounded-full" style={{ background: dot, boxShadow: `0 0 8px ${dot}` }} />
@@ -468,79 +629,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
             </button>
           </PopoverTrigger>
           <PopoverContent align="start" side="bottom" className="sky-glass w-64 rounded-2xl border-0 p-2">
-            <div className="mb-1 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-muted-foreground/70">Choose a label</div>
-            <button
-              onClick={() => { actions.setStarLabel(star.id, null); setLabelPickerOpen(false); }}
-              className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-[12.5px] text-foreground/85 hover:bg-white/[0.06]"
-              data-testid="button-label-none"
-            >
-              <span className="h-2 w-2 rounded-full bg-[#e4dff0]" /> Unlabeled
-            </button>
-            {sky.labels.map((l) => (
-              <button
-                key={l.id}
-                onClick={() => { actions.setStarLabel(star.id, l.id); setLabelPickerOpen(false); }}
-                className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-[12.5px] hover:bg-white/[0.06] ${star.labelId === l.id ? "text-foreground" : "text-foreground/80"}`}
-                data-testid={`button-label-${l.id}`}
-              >
-                <span className="h-2 w-2 rounded-full" style={{ background: l.color }} />
-                {l.name}
-              </button>
-            ))}
-            {!newLabel && (
-              <button
-                onClick={() => setNewLabel({ name: "", color: PALETTE[sky.labels.length % PALETTE.length].hex })}
-                className="mt-1 flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-[12px] text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
-                data-testid="button-new-label-inline"
-              >
-                <Plus className="h-3 w-3" /> New label
-              </button>
-            )}
-            {newLabel && (
-              <div className="mt-1 rounded-xl bg-white/[0.04] p-3">
-            <input
-              autoFocus
-              value={newLabel.name}
-              maxLength={40}
-              onChange={(e) => setNewLabel({ ...newLabel, name: e.target.value })}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && newLabel.name.trim()) {
-                  actions.addLabel(newLabel.name.trim(), newLabel.color, (l) => { actions.setStarLabel(star.id, l.id); setLabelPickerOpen(false); });
-                  setNewLabel(null);
-                }
-                if (e.key === "Escape") { e.stopPropagation(); setNewLabel(null); }
-              }}
-              placeholder="Label name"
-              className="quiet-input mb-2.5 w-full text-[13px]"
-              data-testid="input-new-label-name"
-            />
-            <div className="flex flex-wrap items-center gap-1.5">
-              {PALETTE.map((p) => (
-                <button
-                  key={p.hex}
-                  title={p.name}
-                  onClick={() => setNewLabel({ ...newLabel, color: p.hex })}
-                  className={`h-5 w-5 rounded-full transition-transform duration-300 soft-ease ${newLabel.color === p.hex ? "scale-110 ring-2 ring-white/50 ring-offset-2 ring-offset-[#111114]" : "hover:scale-110"}`}
-                  style={{ background: p.hex }}
-                />
-              ))}
-              <div className="ml-auto flex gap-1">
-                <button onClick={() => setNewLabel(null)} className="rounded-md px-2 py-1 text-[12px] text-muted-foreground hover:text-foreground">Cancel</button>
-                <button
-                  disabled={!newLabel.name.trim()}
-                  onClick={() => {
-                    actions.addLabel(newLabel.name.trim(), newLabel.color, (l) => { actions.setStarLabel(star.id, l.id); setLabelPickerOpen(false); });
-                    setNewLabel(null);
-                  }}
-                  className="rounded-md bg-primary/90 px-2.5 py-1 text-[12px] font-medium text-primary-foreground disabled:opacity-40"
-                  data-testid="button-create-label-inline"
-                >
-                  Add
-                </button>
-              </div>
-            </div>
-              </div>
-            )}
+            {labelMenu(() => setLabelPickerOpen(false))}
           </PopoverContent>
         </Popover> : (
           <div className="flex flex-wrap items-center gap-1.5">
@@ -621,14 +710,15 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
       </div>
 
       {/* tabs */}
-      <div className="flex items-end gap-5 border-b border-white/[0.06] px-6" role="tablist">
+      <div className="flex items-end gap-3 border-b border-white/[0.06] px-5" role="tablist">
         {(["notes", "tasks"] as const).map((t) => (
           <button
             key={t}
             role="tab"
             aria-selected={tab === t}
             onClick={() => onTabChange(t)}
-            className={`relative -mb-px flex min-h-10 items-center gap-1.5 border-b-[1.5px] pb-2 pt-1 text-[13px] transition-colors duration-300 max-md:min-h-11 ${tab === t ? "border-foreground/70 text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+            className={`relative -mb-px flex min-h-11 items-center gap-1.5 border-b-2 px-1 pb-2.5 pt-2 text-[13px] transition-colors duration-300 ${tab === t ? "text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+            style={tab === t ? { borderColor: dot } : undefined}
             data-testid={`tab-${t}`}
           >
             {t === "notes" ? "Notes" : "Tasks"}
@@ -744,7 +834,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
             )}
           </div>
         ) : (
-          <span className="flex-1 text-muted-foreground/60">Drag from a star's halo to connect it.</span>
+          <span className="flex-1 text-muted-foreground/60">{narrow ? "Hold a star in the sky to connect it." : "Drag from a star's halo to connect it."}</span>
         )}
         {!narrow && (
           <button

@@ -87,8 +87,11 @@ export function useSheetDrag(height: SheetHeight, onHeightChange: (h: SheetHeigh
   };
 }
 
-/** Phone bottom sheet: half height by default, drag the handle to full height, stays above the keyboard. */
-export function BottomSheet({ height, children, testId, z = 30 }: { height: SheetHeight; children: React.ReactNode; testId?: string; z?: number }) {
+/**
+ * Phone bottom sheet that stays above the keyboard. "half" is about two-thirds of the screen and
+ * "full" nearly all of it; a `tall` sheet (the star card) is 90% when full, leaving a sliver of sky, and 50% when half.
+ */
+export function BottomSheet({ height, children, testId, z = 30, tall = false }: { height: SheetHeight; children: React.ReactNode; testId?: string; z?: number; tall?: boolean }) {
   const { inset, visible } = useKeyboardInset();
   return (
     <motion.div
@@ -97,7 +100,7 @@ export function BottomSheet({ height, children, testId, z = 30 }: { height: Shee
       animate={{ y: 0, opacity: 1 }}
       exit={{ y: "100%", opacity: 0.4 }}
       transition={{ duration: 0.55, ease: EASE }}
-      className={`fixed inset-x-0 transition-[height,bottom] duration-300 soft-ease ${height === "full" ? "h-[calc(100dvh-14px)]" : "h-[64dvh]"}`}
+      className={`fixed inset-x-0 transition-[height,bottom] duration-300 soft-ease ${tall ? (height === "full" ? "h-[90dvh]" : "h-[50dvh]") : height === "full" ? "h-[calc(100dvh-14px)]" : "h-[64dvh]"}`}
       style={{ bottom: inset, maxHeight: visible - 8, zIndex: z }}
       data-testid={testId}
     >

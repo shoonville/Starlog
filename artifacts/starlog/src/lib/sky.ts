@@ -22,6 +22,15 @@ export function lighten(hex: string, amount: number): [number, number, number] {
   return [up(r), up(g), up(b)];
 }
 
+/** Tint for a constellation name: its most common star color, lifted toward white (as drawn on the sky). */
+export function constellationTint(colors: string[]): [number, number, number] {
+  const tally = new Map<string, number>();
+  for (const c of colors) tally.set(c, (tally.get(c) ?? 0) + 1);
+  let best = DEFAULT_STAR, bestN = 0;
+  for (const [col, k] of tally) if (k > bestN) { best = col; bestN = k; }
+  return lighten(best, 0.45);
+}
+
 export const MIN_ZOOM = 0.22;
 export const MAX_ZOOM = 3.6;
 

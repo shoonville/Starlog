@@ -22,6 +22,8 @@ type Props = {
   /** Share of a star's tasks that are done (0..1), only for stars that have tasks. */
   taskProgress?: Map<number, number>;
   onStarTap: (id: number) => void;
+  /** Touch: the finger rested on a star for about half a second without moving. */
+  onStarHold?: (id: number) => void;
   onBackground: () => void;
   onCreateAt: (x: number, y: number) => void;
   onMove: (id: number, x: number, y: number) => void;
@@ -37,7 +39,7 @@ type Gesture =
   | { kind: "none" }
   | { kind: "done" }
   | { kind: "empty"; sx: number; sy: number; moved: boolean; lastX: number; lastY: number; lastT: number }
-  | { kind: "star"; id: number; sx: number; sy: number; moved: boolean; offX: number; offY: number }
+  | { kind: "star"; id: number; sx: number; sy: number; moved: boolean; offX: number; offY: number; slop: number }
   | { kind: "link"; id: number; sx: number; sy: number }
   | { kind: "pinch"; startDist: number; startZ: number; wx: number; wy: number };
 
@@ -280,7 +282,19 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
           const st = P.current.stars.find((q) => q.id === hit.id)!;
           const w = toWorld(x, y);
           const p = posOf(st);
-          s.g = { kind: "star", id: hit.id, sx: x, sy: y, moved: false, offX: p.x - w.x, offY: p.y - w.y };
+          const touch = e.pointerType !== "mouse";
+          s.g = { kind: "star", id: hit.id, sx: x, sy: y, moved: false, offX: p.x - w.x, offY: p.y - w.y, slop: touch ? 8 : 4 };
+          if (touch && P.current.onStarHold) {
+            // Hold still on a star → pick it for connecting. Moving first makes it a normal drag.
+            s.longTimer = window.setTimeout(() => {
+              const g = s.g;
+              if (g.kind === "star" && g.id === hit.id && !g.moved && s.pointers.size === 1) {
+                s.g = { kind: "done" };
+                try { navigator.vibrate?.(12); } catch { /* noop */ }
+                P.current.onStarHold?.(hit.id);
+              }
+            }, 500);
+          }
         }
         return;
       }
@@ -336,7 +350,10 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
         return;
       }
       if (g.kind === "star") {
-        if (!g.moved && Math.hypot(x - g.sx, y - g.sy) > 4) g.moved = true;
+        if (!g.moved && Math.hypot(x - g.sx, y - g.sy) > g.slop) {
+          g.moved = true;
+          clearTimeout(s.longTimer);
+        }
         if (g.moved) {
           const w = toWorld(x, y);
           s.drag = { id: g.id, x: w.x + g.offX, y: w.y + g.offY };
@@ -440,6 +457,13 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
       s.mouse = { x: -999, y: -999 };
     };
     const noCtx = (e: Event) => e.preventDefault();
+    // Stops the phone's own long-press behaviors (text selection, magnifier, callout, double-tap zoom).
+    // Pointer events still fire; an input that had focus is blurred by hand.
+    const noTouchDefault = (e: TouchEvent) => {
+      if (e.cancelable) e.preventDefault();
+      const el = document.activeElement as HTMLElement | null;
+      if (el && el !== document.body && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) el.blur();
+    };
 
     canvas.addEventListener("pointerdown", onDown);
     canvas.addEventListener("pointermove", onMove);
@@ -448,6 +472,7 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
     canvas.addEventListener("pointerleave", onLeave);
     canvas.addEventListener("wheel", onWheel, { passive: false });
     canvas.addEventListener("contextmenu", noCtx);
+    canvas.addEventListener("touchstart", noTouchDefault, { passive: false });
 
     /**
      * First view: the largest zoom (up to a gentle cap) at which every star,
@@ -854,6 +879,11 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
       }
     };
     raf = requestAnimationFrame(loop);
+    // Dev only: screen positions of stars, for manual browser checks.
+    if (import.meta.env.DEV) {
+      (window as unknown as { __starScreen?: () => unknown }).__starScreen = () =>
+        P.current.stars.map((st) => ({ id: st.id, title: st.title, ...toScreen(posOf(st).x, posOf(st).y) }));
+    }
 
     return () => {
       cancelAnimationFrame(raf);
@@ -866,6 +896,7 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
       canvas.removeEventListener("pointerleave", onLeave);
       canvas.removeEventListener("wheel", onWheel);
       canvas.removeEventListener("contextmenu", noCtx);
+      canvas.removeEventListener("touchstart", noTouchDefault);
     };
   }, []);
 
@@ -874,7 +905,7 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
       ref={canvasRef}
       data-testid="canvas-sky"
       className="absolute inset-0 h-full w-full touch-none select-none"
-      style={{ cursor: "grab" }}
+      style={{ cursor: "grab", WebkitTouchCallout: "none", WebkitUserSelect: "none", WebkitTapHighlightColor: "transparent" }}
     />
   );
 });

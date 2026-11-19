@@ -17,10 +17,13 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSkyActions } from "@/hooks/use-sky-actions";
-import { componentRoots, constellationViews } from "@/lib/sky";
+import { componentRoots, constellationViews, type ConstellationView } from "@/lib/sky";
 import { toast } from "@/hooks/use-toast";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
+const HOLD_TIP_KEY = "starlog:tip-hold-connect";
+/** Phone: where a focused star lands, as a share of screen height above center (the card covers ~90%). */
+const PHONE_STAR_DY = 0.44;
 
 function useNarrow() {
   const [n, setN] = useState(() => window.matchMedia("(max-width: 767px)").matches);
@@ -142,6 +145,9 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [connectMode, setConnectMode] = useState(false);
   const [connectFrom, setConnectFrom] = useState<number | null>(null);
+  /** Phone-style connecting: each tap draws (or removes) a line and moves the selection on, until cancelled. */
+  const [connectChain, setConnectChain] = useState(false);
+  const [holdTip, setHoldTip] = useState(false);
   const [labelFilter, setLabelFilter] = useState<number | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchIds, setSearchIds] = useState<Set<number> | null>(null);
@@ -151,7 +157,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
   const [recentOpen, setRecentOpen] = useState(false);
   const [focusNote, setFocusNote] = useState<{ starId: number; noteId: number } | null>(null);
   const [devOpen, setDevOpen] = useState(() => new URLSearchParams(window.location.search).has("dev"));
-  const [sheetHeight, setSheetHeight] = useState<SheetHeight>("half");
+  const [sheetHeight, setSheetHeight] = useState<SheetHeight>("full");
   const [cardTab, setCardTab] = useState<CardTab>("notes");
   const [todayOpen, setTodayOpen] = useState(false);
   const [todayHeight, setTodayHeight] = useState<SheetHeight>("half");
@@ -185,7 +191,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
   const roots = useMemo(() => componentRoots(sky.stars, sky.connections), [sky.stars, sky.connections]);
   const cviews = useMemo(() => constellationViews(sky.stars, sky.connections, sky.constellations, roots), [sky.stars, sky.connections, sky.constellations, roots]);
   const selected = sky.stars.find((s) => s.id === selectedId) ?? null;
-  useEffect(() => { if (selectedId == null) setSheetHeight("half"); }, [selectedId]);
+  useEffect(() => { if (selectedId == null) setSheetHeight("full"); }, [selectedId]);
 
   // Tasks: progress ring per star, and what's due for the Today button.
   const today = todayStr();
@@ -224,7 +230,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
     else if (!opts?.keepTab) setCardTab("notes");
     setFocusNote((f) => (f && f.starId === id ? f : null));
     const n = window.matchMedia("(max-width: 767px)").matches;
-    canvas.current?.flyTo(st.x, st.y, n ? { dy: -window.innerHeight * 0.28 } : { dx: -210 });
+    canvas.current?.flyTo(st.x, st.y, n ? { dy: -window.innerHeight * PHONE_STAR_DY } : { dx: -210 });
   }, [sky.stars]);
 
   /** A fresh star near the middle of the view, with a title (and label). */
@@ -246,7 +252,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
       setSelectedId(s.id);
       setCardTab("notes");
       const n = window.matchMedia("(max-width: 767px)").matches;
-      canvas.current?.flyTo(s.x, s.y, n ? { dy: -window.innerHeight * 0.28 } : { dx: -210 });
+      canvas.current?.flyTo(s.x, s.y, n ? { dy: -window.innerHeight * PHONE_STAR_DY } : { dx: -210 });
     });
   }, [actions, timelineOpen]);
 
@@ -255,14 +261,63 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
     createAt(Math.round(c.x + (Math.random() - 0.5) * 40), Math.round(c.y + (Math.random() - 0.5) * 40));
   }, [createAt]);
 
+  const endConnect = () => { setConnectMode(false); setConnectFrom(null); setConnectChain(false); };
+  const dismissHoldTip = () => {
+    setHoldTip(false);
+    try { localStorage.setItem(HOLD_TIP_KEY, "1"); } catch { /* noop */ }
+  };
+
+  // One-time tip for phones, once there are at least two stars to connect.
+  const canShowHoldTip = narrow && sky.stars.length >= 2;
+  useEffect(() => {
+    if (!canShowHoldTip) return;
+    try { if (localStorage.getItem(HOLD_TIP_KEY)) return; } catch { return; }
+    const show = window.setTimeout(() => {
+      setHoldTip(true);
+      try { localStorage.setItem(HOLD_TIP_KEY, "1"); } catch { /* noop */ }
+    }, 1600);
+    return () => clearTimeout(show);
+  }, [canShowHoldTip]);
+  useEffect(() => {
+    if (!holdTip) return;
+    const t = window.setTimeout(() => setHoldTip(false), 7000);
+    return () => clearTimeout(t);
+  }, [holdTip]);
+
+  /** Touch: holding a star picks it for connecting. */
+  const onStarHold = (id: number) => {
+    dismissHoldTip();
+    setSelectedId(null);
+    setFocusNote(null);
+    setSearchOpen(false);
+    setQuickAddOpen(false);
+    if (narrow) setTodayOpen(false);
+    setConnectMode(true);
+    setConnectChain(true);
+    setConnectFrom(id);
+  };
+
   const onStarTap = (id: number) => {
+    if (connectMode && connectChain) {
+      if (connectFrom == null) { setConnectFrom(id); return; }
+      if (connectFrom === id) return;
+      const existing = sky.connections.find((c) =>
+        (c.fromStarId === connectFrom && c.toStarId === id) || (c.fromStarId === id && c.toStarId === connectFrom));
+      if (existing) {
+        actions.disconnect(existing.id);
+        toast({ title: "Line removed" });
+      } else {
+        actions.connect(connectFrom, id);
+        setConnectFrom(id);
+      }
+      return;
+    }
     if (connectMode) {
       if (connectFrom == null) setConnectFrom(id);
       else if (connectFrom === id) return;
       else {
         actions.connect(connectFrom, id);
-        setConnectMode(false);
-        setConnectFrom(null);
+        endConnect();
         focusStar(id);
       }
       return;
@@ -275,7 +330,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
     if (searchOpen) { setSearchOpen(false); return; }
     if (todayOpen) { setTodayOpen(false); return; }
     if (selectedId != null) { setSelectedId(null); return; }
-    if (connectMode) { setConnectMode(false); setConnectFrom(null); return; }
+    if (connectMode) { endConnect(); return; }
     if (timelineOpen) { setTimelineOpen(false); setCutoff(null); return; }
     if (recentOpen) { setRecentOpen(false); return; }
     if (labelFilter != null) setLabelFilter(null);
@@ -320,7 +375,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
   const base = import.meta.env.BASE_URL;
   const openToday = () => { setQuickAddOpen(false); if (!narrow) setRecentOpen(false); if (narrow) setSelectedId(null); setTodayOpen((v) => !v); };
   const openQuickAdd = () => { setSearchOpen(false); if (narrow) setTodayOpen(false); setQuickAddOpen(true); };
-  const startConnect = () => { setConnectMode((v) => !v); setConnectFrom(null); setSelectedId(null); };
+  const startConnect = () => { setConnectChain(narrow); setConnectMode((v) => !v); setConnectFrom(null); setSelectedId(null); };
   const openTimeline = () => { setSelectedId(null); setConnectMode(false); setTodayOpen(false); setTimelineOpen(true); };
   const pickTodayTask = (t: Task) => {
     setTodayOpen(false);
@@ -354,8 +409,10 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
         cutoff={cutoff}
         taskProgress={taskProgress}
         onStarTap={onStarTap}
+        onStarHold={onStarHold}
         onBackground={() => {
-          if (connectMode) { setConnectMode(false); setConnectFrom(null); }
+          if (holdTip) dismissHoldTip();
+          if (connectMode) endConnect();
           else if (narrow && todayOpen) setTodayOpen(false);
           else setSelectedId(null);
         }}
@@ -373,7 +430,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
       </div>
 
       {/* demo note */}
-      {sky.isDemo && (
+      {sky.isDemo && !(narrow && selected) && (
         <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rise max-md:top-14">
           <div className="sky-pill flex items-center gap-3 whitespace-nowrap rounded-full py-1.5 pl-4 pr-1.5 text-[12px] text-muted-foreground" data-testid="banner-demo">
             <span className="max-sm:hidden">A demo sky, just for looking around</span>
@@ -389,11 +446,33 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
         {connectMode && (
           <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.6, ease: EASE }}
             className={`absolute left-1/2 z-10 -translate-x-1/2 ${sky.isDemo ? "top-16 max-md:top-[8.5rem]" : "top-5"}`}>
-            <div className="sky-pill rounded-full px-4 py-1.5 text-[12px] text-foreground/90" data-testid="text-connect-hint">
-              {connectFrom == null ? "Choose a star to begin a line" : "Tap another star to connect"}
-              <button className="ml-3 text-muted-foreground hover:text-foreground" onClick={() => { setConnectMode(false); setConnectFrom(null); }}>Cancel</button>
-            </div>
+            {connectChain ? (
+              <div className="sky-pill flex items-center whitespace-nowrap rounded-full pl-4 pr-1 text-[12.5px] text-foreground/90" data-testid="text-connect-hint">
+                {connectFrom == null ? "Tap a star to begin a line" : "Tap a star to connect"}
+                <span className="ml-2 text-muted-foreground/50">·</span>
+                <button className="flex h-11 items-center px-3 text-muted-foreground hover:text-foreground" onClick={endConnect} data-testid="button-cancel-connect">Cancel</button>
+              </div>
+            ) : (
+              <div className="sky-pill rounded-full px-4 py-1.5 text-[12px] text-foreground/90" data-testid="text-connect-hint">
+                {connectFrom == null ? "Choose a star to begin a line" : "Tap another star to connect"}
+                <button className="ml-3 text-muted-foreground hover:text-foreground" onClick={endConnect}>Cancel</button>
+              </div>
+            )}
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* one-time phone tip */}
+      <AnimatePresence>
+        {holdTip && !connectMode && !selected && (
+          <motion.button
+            initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.6, ease: EASE }}
+            onClick={dismissHoldTip}
+            className={`absolute left-1/2 z-10 -translate-x-1/2 ${sky.isDemo ? "top-[8.75rem]" : "top-16"}`}
+            data-testid="tip-hold-connect"
+          >
+            <span className="sky-pill block whitespace-nowrap rounded-full px-4 py-2 text-[12.5px] text-foreground/90">Hold a star to connect it</span>
+          </motion.button>
         )}
       </AnimatePresence>
 
@@ -643,7 +722,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
       {/* journal card */}
       <AnimatePresence>
         {selected && (narrow ? (
-          <BottomSheet key="card" height={sheetHeight} testId="sheet-card">
+          <BottomSheet key="card" height={sheetHeight} testId="sheet-card" tall>
             {card(selected)}
           </BottomSheet>
         ) : (
@@ -670,7 +749,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
         roots={roots}
         actions={actions}
         onClose={() => { setSelectedId(null); setFocusNote(null); }}
-        onStartConnect={(id) => { setSelectedId(null); setFocusNote(null); setConnectFrom(id); setConnectMode(true); }}
+        onStartConnect={(id) => { setSelectedId(null); setFocusNote(null); setConnectFrom(id); setConnectChain(narrow); setConnectMode(true); }}
         sheetHeight={sheetHeight}
         onSheetHeightChange={setSheetHeight}
         narrow={narrow}
@@ -678,6 +757,8 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
         tab={cardTab}
         onTabChange={setCardTab}
         onSwitchStar={(id) => { setFocusNote(null); focusStar(id, { keepTab: true }); }}
+        constellations={cviews}
+        onPickConstellation={(cv: ConstellationView) => { setFocusNote(null); if (cv.members[0] != null) focusStar(cv.members[0]); }}
       />
     );
   }
