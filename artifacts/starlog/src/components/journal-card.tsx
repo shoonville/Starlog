@@ -11,7 +11,7 @@ import {
   type Sky,
   type Star,
 } from "@workspace/api-client-react";
-import { Bold, Check, ChevronDown, Italic, Link2, List, MoreHorizontal, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { Bold, Check, ChevronDown, Copy, Italic, Link2, List, MoreHorizontal, Orbit, Palette, Pencil, Pin, PinOff, Plus, Search, Trash2, X } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,7 +24,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { DEFAULT_STAR, PALETTE, constellationTint, formatStamp, formatStampShort, type ConstellationView } from "@/lib/sky";
 import { TaskComposer, TaskList } from "@/components/task-list";
-import { FormattedNote, applyFormat, formatKeyDown, wordCount, type FormatKind } from "@/lib/note-format";
+import { FormattedNote, applyFormat, formatKeyDown, matchesQuery, plainNote, wordCount, type FormatKind } from "@/lib/note-format";
+import { formatDue, orderedOpenTasks } from "@/lib/tasks";
+import { toast } from "@/hooks/use-toast";
 import { scheduleDelete, usePendingDeletes } from "@/lib/pending-deletes";
 import type { SkyActions } from "@/hooks/use-sky-actions";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -66,7 +68,19 @@ function FormatBar({ target, setValue, words, children }: { target: React.RefObj
   );
 }
 
-function NoteRow({ note, focused, onDelete, onSaved }: { note: Note; focused: boolean; onDelete: () => void; onSaved: () => void }) {
+/** Menu item style shared by the note's hold menu and the star's ⋯ panels. */
+const MENU_ITEM = "flex min-h-11 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13.5px] text-foreground/90 outline-none hover:bg-white/[0.06] focus-visible:bg-white/[0.06] md:min-h-9";
+const HOLD_MS = 500;
+
+function NoteRow({ note, focused, onDelete, onSaved, onTogglePin, query }: {
+  note: Note;
+  focused: boolean;
+  onDelete: () => void;
+  onSaved: () => void;
+  onTogglePin: () => void;
+  /** Search text from the card's search: matches are highlighted, other notes dimmed. */
+  query?: string;
+}) {
   const qc = useQueryClient();
   const update = useUpdateNote();
   const mutateRef = useRef(update.mutate);
@@ -79,6 +93,17 @@ function NoteRow({ note, focused, onDelete, onSaved }: { note: Note; focused: bo
   const timer = useRef<number>(0);
   const pending = useRef<string | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  // Press and hold (or right-click) opens Pin / Edit / Delete.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const hold = useRef<{ timer: number; x: number; y: number } | null>(null);
+  const swallowClick = useRef(false);
+  const cancelHold = () => {
+    if (hold.current) window.clearTimeout(hold.current.timer);
+    hold.current = null;
+  };
+  useEffect(() => cancelHold, []);
+  const searching = !!query?.trim();
+  const dim = searching && !matchesQuery(body, query);
 
   useEffect(() => autosize(taRef.current), [body, editing]);
   useEffect(() => {
@@ -118,12 +143,45 @@ function NoteRow({ note, focused, onDelete, onSaved }: { note: Note; focused: bo
 
   return (
     <li
-      className={`group relative rounded-xl pl-5 transition-[background-color,box-shadow] duration-1000 soft-ease ${focused ? "note-glow" : ""}`}
+      className={`group relative rounded-xl pl-5 transition-[background-color,box-shadow,opacity] duration-1000 soft-ease ${focused ? "note-glow" : ""} ${dim ? "opacity-35 !duration-300" : ""} ${menuOpen ? "bg-white/[0.035]" : ""}`}
       data-note-id={note.id}
+      data-match={searching && !dim ? "true" : undefined}
       data-testid={`note-${note.id}`}
+      onPointerDown={(e) => {
+        if (editing || e.pointerType === "mouse" || (e.target as HTMLElement).closest("button,a")) return;
+        cancelHold();
+        hold.current = {
+          x: e.clientX, y: e.clientY,
+          timer: window.setTimeout(() => {
+            hold.current = null;
+            swallowClick.current = true;
+            navigator.vibrate?.(8);
+            setMenuOpen(true);
+          }, HOLD_MS),
+        };
+      }}
+      onPointerMove={(e) => {
+        if (hold.current && Math.hypot(e.clientX - hold.current.x, e.clientY - hold.current.y) > 8) cancelHold();
+      }}
+      onPointerUp={cancelHold}
+      onPointerCancel={cancelHold}
+      onClickCapture={(e) => {
+        if (!swallowClick.current) return;
+        swallowClick.current = false;
+        e.stopPropagation();
+        e.preventDefault();
+      }}
+      onContextMenu={(e) => {
+        if (editing) return;
+        e.preventDefault();
+        setMenuOpen(true);
+      }}
     >
       <span className="absolute left-0 top-[9px] h-1.5 w-1.5 rounded-full bg-primary/55" />
+      <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+      <PopoverAnchor asChild>
       <div className="mb-1 flex items-center gap-2 text-[11px] text-muted-foreground/80">
+        {note.pinned && <Pin className="h-3 w-3 shrink-0 rotate-45 text-muted-foreground" aria-label="Pinned" data-testid={`icon-note-pinned-${note.id}`} />}
         <span data-testid={`text-note-time-${note.id}`}>{formatStamp(note.createdAt)}</span>
         {note.editedAt && <span className="opacity-70">· edited {formatStamp(note.editedAt)}</span>}
         <span className={`text-[hsl(150_30%_74%)] transition-opacity duration-700 soft-ease ${saved ? "opacity-100" : "opacity-0"}`}>
@@ -138,6 +196,28 @@ function NoteRow({ note, focused, onDelete, onSaved }: { note: Note; focused: bo
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       </div>
+      </PopoverAnchor>
+      <PopoverContent
+        side="bottom"
+        align="start"
+        sideOffset={6}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onCloseAutoFocus={(e) => e.preventDefault()}
+        className="sky-glass w-48 rounded-xl border-0 p-1.5"
+        data-testid={`menu-note-${note.id}`}
+      >
+        <button className={MENU_ITEM} onClick={() => { setMenuOpen(false); onTogglePin(); }} data-testid={`button-pin-note-${note.id}`}>
+          {note.pinned ? <PinOff className="h-3.5 w-3.5 text-muted-foreground" /> : <Pin className="h-3.5 w-3.5 text-muted-foreground" />}
+          {note.pinned ? "Unpin" : "Pin"}
+        </button>
+        <button className={MENU_ITEM} onClick={() => { setMenuOpen(false); window.setTimeout(() => setEditing(true), 60); }} data-testid={`button-edit-note-${note.id}`}>
+          <Pencil className="h-3.5 w-3.5 text-muted-foreground" /> Edit
+        </button>
+        <button className={`${MENU_ITEM} text-[hsl(350_62%_78%)]`} onClick={() => { setMenuOpen(false); onDelete(); }} data-testid={`button-menu-delete-note-${note.id}`}>
+          <Trash2 className="h-3.5 w-3.5" /> Delete
+        </button>
+      </PopoverContent>
+      </Popover>
       {editing ? (
         <div>
           <textarea
@@ -163,11 +243,12 @@ function NoteRow({ note, focused, onDelete, onSaved }: { note: Note; focused: bo
           tabIndex={0}
           onClick={(e) => { if (!(e.target as HTMLElement).closest("a")) setEditing(true); }}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); setEditing(true); } }}
-          className="cursor-text text-[14px] leading-relaxed text-foreground/90 outline-none"
+          className="cursor-text text-[14px] leading-relaxed text-foreground/90 outline-none max-md:select-none"
+          style={{ WebkitTouchCallout: "none" }}
           title="Click to edit"
           data-testid={`text-note-${note.id}`}
         >
-          {body.trim() ? <FormattedNote body={body} /> : <span className="text-muted-foreground/60">Empty note</span>}
+          {body.trim() ? <FormattedNote body={body} query={query} /> : <span className="text-muted-foreground/60">Empty note</span>}
         </div>
       )}
     </li>
@@ -193,6 +274,8 @@ type Props = {
   /** Named constellations, for the switcher above the chips. */
   constellations: ConstellationView[];
   onPickConstellation: (cv: ConstellationView) => void;
+  /** After "Move to constellation" places the star in its new home, so the view can follow it. */
+  onStarMoved: (star: Star) => void;
 };
 
 export type CardTab = "notes" | "tasks";
@@ -349,7 +432,7 @@ function ConstellationSwitcher({ name, tint, all, currentId, tintOf, onPick, onR
   );
 }
 
-export default function JournalCard({ star, sky, roots, actions, onClose, onStartConnect, sheetHeight, onSheetHeightChange, narrow, focusNoteId, tab, onTabChange, onSwitchStar, constellations, onPickConstellation }: Props) {
+export default function JournalCard({ star, sky, roots, actions, onClose, onStartConnect, sheetHeight, onSheetHeightChange, narrow, focusNoteId, tab, onTabChange, onSwitchStar, constellations, onPickConstellation, onStarMoved }: Props) {
   const qc = useQueryClient();
   const notesKey = getListStarNotesQueryKey(star.id);
   const notesQ = useListStarNotes(star.id, { query: { enabled: !!star.id, queryKey: notesKey } });
@@ -390,15 +473,16 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
   }, [star.id, notesQ.data, focusNoteId]);
 
   const { onSheetHandleDown, onSheetHandleMove, onSheetHandleUp, onSheetHandleCancel } = useSheetDrag(sheetHeight, onSheetHeightChange, onClose);
-  const [connectPickerOpen, setConnectPickerOpen] = useState(false);
-  const [connectQuery, setConnectQuery] = useState("");
-  const connectableStars = useMemo(() => {
-    const connected = new Set(sky.connections.flatMap((c) => c.fromStarId === star.id ? [c.toStarId] : c.toStarId === star.id ? [c.fromStarId] : []));
-    const q = connectQuery.trim().toLocaleLowerCase();
-    return sky.stars
-      .filter((candidate) => candidate.id !== star.id && !connected.has(candidate.id) && (!q || candidate.title.toLocaleLowerCase().includes(q)))
-      .sort((a, b) => a.title.localeCompare(b.title));
-  }, [sky.stars, sky.connections, star.id, connectQuery]);
+  const titleRef = useRef<HTMLInputElement>(null);
+  /** A panel opened from the ⋯ menu, shown next to it. */
+  const [menuPanel, setMenuPanel] = useState<"move" | null>(null);
+
+  // Search within this star's notes and tasks.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { setSearchOpen(false); setQuery(""); setMenuPanel(null); }, [star.id]);
+  const closeSearch = () => { setSearchOpen(false); setQuery(""); };
 
   const pendingDeletes = usePendingDeletes();
 
@@ -473,7 +557,105 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
 
   const [confirm, setConfirm] = useState(false);
   const hiddenNotes = useMemo(() => new Set(pendingDeletes.filter((p) => p.kind === "note").map((p) => p.id)), [pendingDeletes]);
-  const notes = useMemo(() => (notesQ.data ?? []).filter((n) => !hiddenNotes.has(n.id)), [notesQ.data, hiddenNotes]);
+  // Pinned notes stay at the top of the thread (oldest pin first); the rest keep their order.
+  const notes = useMemo(() => {
+    const all = (notesQ.data ?? []).filter((n) => !hiddenNotes.has(n.id));
+    return [...all.filter((n) => n.pinned), ...all.filter((n) => !n.pinned)];
+  }, [notesQ.data, hiddenNotes]);
+  const updateNote = useUpdateNote();
+  const togglePin = (n: Note) => {
+    const key = getListStarNotesQueryKey(n.starId);
+    const pinned = !n.pinned;
+    qc.setQueryData<Note[]>(key, (old) => old?.map((x) => (x.id === n.id ? { ...x, pinned } : x)));
+    updateNote.mutate(
+      { noteId: n.id, data: { pinned } },
+      {
+        onError: () => {
+          qc.setQueryData<Note[]>(key, (old) => old?.map((x) => (x.id === n.id ? { ...x, pinned: !pinned } : x)));
+          toast({ title: "Couldn't pin that note", description: "Please try again." });
+        },
+      },
+    );
+  };
+
+  const q = query.trim();
+  const noteHits = q ? notes.filter((n) => matchesQuery(n.body, q)).length : 0;
+  const taskHits = q ? starTasks.filter((t) => matchesQuery(t.title, q)).length : 0;
+  // Bring the first match into view, switching tabs when only the other one has matches.
+  useEffect(() => {
+    if (!q) return;
+    if (tab === "notes" && !noteHits && taskHits) onTabChange("tasks");
+    else if (tab === "tasks" && !taskHits && noteHits) onTabChange("notes");
+    const t = window.setTimeout(() => {
+      document.querySelector("[data-testid=card-journal] .search-hit")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 120);
+    return () => clearTimeout(t);
+  }, [q, noteHits, taskHits]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** The star's title, notes and tasks as plain text. */
+  const copyAsText = async () => {
+    const lines: string[] = [title.trim() || star.title];
+    const meta = [label?.name, constellation?.name].filter(Boolean);
+    if (meta.length) lines.push(meta.join(" · "));
+    if (notes.length) {
+      lines.push("", "Notes");
+      for (const n of notes) lines.push("", `${formatStamp(n.createdAt)}${n.pinned ? " (pinned)" : ""}`, plainNote(n.body).trim());
+    }
+    if (starTasks.length) {
+      lines.push("", "Tasks");
+      const open = orderedOpenTasks(starTasks, star.taskOrder);
+      for (const t of [...open, ...starTasks.filter((x) => x.done)]) {
+        const due = t.dueDate && !t.done ? ` (${formatDue(t.dueDate)})` : "";
+        lines.push(`[${t.done ? "x" : " "}] ${t.title}${due}`);
+      }
+    }
+    const text = lines.join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      if (!ok) { toast({ title: "Couldn't copy", description: "Your browser blocked the clipboard." }); return; }
+    }
+    toast({ title: "Copied as text" });
+  };
+
+  /** Detaches this star from its lines, places it beside the nearest star of another constellation and connects them. */
+  const moveTo = (cv: ConstellationView) => {
+    const targets = cv.members.map((id) => starById.get(id)).filter((m): m is Star => !!m && m.id !== star.id);
+    if (!targets.length) return;
+    const near = targets.reduce((best, m) => (Math.hypot(m.x - star.x, m.y - star.y) < Math.hypot(best.x - star.x, best.y - star.y) ? m : best));
+    const mine = sky.connections.filter((c) => c.fromStarId === star.id || c.toStarId === star.id);
+    // If this star holds the current constellation's name, hand the name to a neighbour that stays behind.
+    if (constellation && constellation.anchorStarId === star.id && members.length > 2) {
+      const neighbour = mine.map((c) => (c.fromStarId === star.id ? c.toStarId : c.fromStarId))[0];
+      actions.removeConstellation(constellation.id);
+      if (neighbour != null) actions.nameConstellation(constellation.name, neighbour);
+    }
+    for (const c of mine) actions.disconnect(c.id);
+    // Choose the open direction around the target star.
+    const others = sky.stars.filter((o) => o.id !== star.id && o.id !== near.id);
+    let spot = { x: near.x + 110, y: near.y };
+    let room = -1;
+    for (let k = 0; k < 12; k++) {
+      const ang = (k / 12) * Math.PI * 2;
+      const p = { x: near.x + Math.cos(ang) * 110, y: near.y + Math.sin(ang) * 110 };
+      const r = others.reduce((m, o) => Math.min(m, Math.hypot(o.x - p.x, o.y - p.y)), Infinity);
+      if (r > room) { room = r; spot = p; }
+    }
+    const x = Math.round(spot.x), y = Math.round(spot.y);
+    actions.moveStar(star.id, x, y);
+    actions.connect(star.id, near.id);
+    onStarMoved({ ...star, x, y });
+    toast({ title: `Moved to ${cv.name}` });
+  };
+
 
   // Scroll to and briefly highlight a requested note.
   const [glowNote, setGlowNote] = useState<number | null>(null);
@@ -608,7 +790,15 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
         return (
           <div data-testid="card-top">
             <div className="flex items-center gap-2 pl-5 pr-3">
-              {members.length > 1 ? switcher : <div className="flex-1" />}
+              {members.length > 1 ? switcher : (
+                <button
+                  onClick={() => onStartConnect(star.id)}
+                  className="-mx-1 flex h-11 min-w-0 flex-1 items-center rounded-lg px-1 text-left text-[12.5px] text-muted-foreground/70 outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-white/20"
+                  data-testid="button-start-constellation"
+                >
+                  <span className="truncate">Connect to a star to start a constellation.</span>
+                </button>
+              )}
               {closeButton}
             </div>
             {members.length > 1 && chips}
@@ -643,80 +833,140 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
             const id = star.id;
             titleTimer.current = window.setTimeout(() => flushTitle(id), 600);
           }}
+          ref={titleRef}
           maxLength={200}
           placeholder="Name this star"
           className={`quiet-input min-w-0 flex-1 font-medium tracking-[-0.015em] text-foreground ${narrow ? "text-[20px]" : "text-[21px]"}`}
           data-testid="input-star-title"
         />
-        {narrow ? (
-          <>
-            <button
-              onClick={() => onStartConnect(star.id)}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
-              aria-label="Connect this star"
-              title="Connect"
-              data-testid="button-connect-from-card"
-            >
-              <Link2 className="h-4 w-4" />
-            </button>
-            <Popover open={connectPickerOpen} onOpenChange={(o) => { setConnectPickerOpen(o); if (!o) setConnectQuery(""); }}>
-              <DropdownMenu>
-                <PopoverAnchor asChild>
-                  <DropdownMenuTrigger asChild>
-                    <button className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.06] hover:text-foreground" aria-label="More star actions" data-testid="button-star-menu">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </button>
-                  </DropdownMenuTrigger>
-                </PopoverAnchor>
-                <DropdownMenuContent align="end" onCloseAutoFocus={(e) => e.preventDefault()} className="sky-glass min-w-48 rounded-xl border-0 p-1.5">
-                  <DropdownMenuItem
-                    onSelect={() => window.setTimeout(() => setConnectPickerOpen(true), 0)}
-                    className="min-h-11 gap-2.5 rounded-lg text-[13.5px] text-foreground/90"
-                    data-testid="button-connect-to"
-                  >
-                    <Search className="h-3.5 w-3.5 text-muted-foreground" /> Find a star to connect
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => setConfirm(true)}
-                    className="min-h-11 gap-2.5 rounded-lg text-[13.5px] text-[hsl(350_62%_78%)] focus:text-[hsl(350_62%_78%)]"
-                    data-testid="menu-delete-star"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" /> Delete star
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <PopoverContent side="bottom" align="end" className="sky-glass w-[min(20rem,84vw)] rounded-2xl border-0 p-2.5" data-testid="popover-connect-to">
-                <div className="mb-2 flex items-center gap-2 rounded-xl bg-white/[0.05] px-3 py-2">
-                  <Search className="h-3.5 w-3.5 text-muted-foreground/70" />
-                  <input
-                    autoFocus
-                    value={connectQuery}
-                    onChange={(e) => setConnectQuery(e.target.value)}
-                    placeholder="Connect to…"
-                    aria-label="Search stars to connect"
-                    className="quiet-input min-w-0 flex-1 text-[13px]"
-                    data-testid="input-connect-search"
-                  />
-                </div>
-                <ul className="thin-scroll max-h-52 overflow-y-auto">
-                  {connectableStars.length ? connectableStars.map((candidate) => (
-                    <li key={candidate.id}>
-                      <button
-                        onClick={() => { actions.connect(star.id, candidate.id); setConnectPickerOpen(false); setConnectQuery(""); }}
-                        className="flex min-h-11 w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[13px] text-foreground/85 hover:bg-white/[0.06] hover:text-foreground"
-                        data-testid={`button-connect-star-${candidate.id}`}
-                      >
-                        <span className="h-1.5 w-1.5 rounded-full" style={{ background: colorOfStar(candidate) }} />
-                        <span className="truncate">{candidate.title}</span>
-                      </button>
-                    </li>
-                  )) : <li className="px-3 py-3 text-[12px] text-muted-foreground/75">{connectQuery ? "No matching stars." : "All other stars are already connected."}</li>}
+        {narrow && (
+          <button
+            onClick={() => onStartConnect(star.id)}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground md:h-9 md:w-9"
+            aria-label="Connect this star"
+            title="Connect"
+            data-testid="button-connect-from-card"
+          >
+            <Link2 className="h-4 w-4" />
+          </button>
+        )}
+        <button
+          onClick={() => { if (searchOpen) closeSearch(); else { setSearchOpen(true); window.setTimeout(() => searchRef.current?.focus(), 30); } }}
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground md:h-9 md:w-9 ${searchOpen ? "bg-white/[0.07] text-foreground" : ""}`}
+          aria-label="Search this star"
+          aria-pressed={searchOpen}
+          title="Search notes and tasks"
+          data-testid="button-search-star"
+        >
+          <Search className="h-4 w-4" />
+        </button>
+        <Popover open={menuPanel != null} onOpenChange={(o) => { if (!o) setMenuPanel(null); }}>
+          <DropdownMenu>
+            <PopoverAnchor asChild>
+              <DropdownMenuTrigger asChild>
+                <button className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground md:h-9 md:w-9" aria-label="More star actions" data-testid="button-star-menu">
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+            </PopoverAnchor>
+            <DropdownMenuContent align="end" onCloseAutoFocus={(e) => e.preventDefault()} className="sky-glass min-w-52 rounded-xl border-0 p-1.5" data-testid="menu-star">
+              <DropdownMenuItem
+                onSelect={() => window.setTimeout(() => { titleRef.current?.focus(); titleRef.current?.select(); }, 30)}
+                className="min-h-11 gap-2.5 rounded-lg text-[13.5px] text-foreground/90 md:min-h-9"
+                data-testid="menu-rename-star"
+              >
+                <Pencil className="h-3.5 w-3.5 text-muted-foreground" /> Rename
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => window.setTimeout(() => setDotPickerOpen(true), 30)}
+                className="min-h-11 gap-2.5 rounded-lg text-[13.5px] text-foreground/90 md:min-h-9"
+                data-testid="menu-change-label"
+              >
+                <Palette className="h-3.5 w-3.5 text-muted-foreground" /> Change color or label
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => { void copyAsText(); }}
+                className="min-h-11 gap-2.5 rounded-lg text-[13.5px] text-foreground/90 md:min-h-9"
+                data-testid="menu-copy-star"
+              >
+                <Copy className="h-3.5 w-3.5 text-muted-foreground" /> Copy as text
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => window.setTimeout(() => setMenuPanel("move"), 30)}
+                className="min-h-11 gap-2.5 rounded-lg text-[13.5px] text-foreground/90 md:min-h-9"
+                data-testid="menu-move-star"
+              >
+                <Orbit className="h-3.5 w-3.5 text-muted-foreground" /> Move to constellation
+              </DropdownMenuItem>
+              <DropdownMenuSeparator className="my-1 bg-white/[0.07]" />
+              <DropdownMenuItem
+                onSelect={() => setConfirm(true)}
+                className="min-h-11 gap-2.5 rounded-lg text-[13.5px] text-[hsl(350_62%_78%)] focus:text-[hsl(350_62%_78%)] md:min-h-9"
+                data-testid="menu-delete-star"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Delete star
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <PopoverContent side="bottom" align="end" onOpenAutoFocus={(e) => e.preventDefault()} className="sky-glass w-[min(18rem,84vw)] rounded-2xl border-0 p-1.5" data-testid="panel-move-star">
+            <div className="px-2 pb-1 pt-1.5 text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/70">Move to constellation</div>
+            {(() => {
+              const others = constellations.filter((cv) => !cv.members.includes(star.id));
+              if (!others.length) return <div className="px-2 py-2.5 text-[12.5px] text-muted-foreground/75">No other named constellations yet.</div>;
+              return (
+                <ul className="thin-scroll max-h-60 overflow-y-auto">
+                  {others.map((cv) => {
+                    const c = tintOf(cv.members).join(",");
+                    return (
+                      <li key={cv.id}>
+                        <button
+                          onClick={() => { setMenuPanel(null); moveTo(cv); }}
+                          className={MENU_ITEM}
+                          data-testid={`button-move-to-${cv.id}`}
+                        >
+                          <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: `rgb(${c})` }} />
+                          <span className="flex-1 truncate">{cv.name}</span>
+                          <span className="text-[11px] tabular-nums text-muted-foreground/70">{cv.members.length}</span>
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
-              </PopoverContent>
-            </Popover>
-          </>
-        ) : closeButton}
+              );
+            })()}
+          </PopoverContent>
+        </Popover>
+        {!narrow && closeButton}
       </div>
+
+      {searchOpen && (
+        <div className={narrow ? "px-4 pb-2" : "px-5 pb-3"} data-testid="star-search">
+          <div className="flex h-10 items-center gap-2 rounded-xl bg-white/[0.05] pl-3 pr-1 transition-colors focus-within:bg-white/[0.07] max-md:h-11">
+            <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+            <input
+              ref={searchRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); closeSearch(); } }}
+              placeholder="Search notes and tasks"
+              aria-label="Search this star's notes and tasks"
+              enterKeyHint="search"
+              className="quiet-input min-w-0 flex-1 text-[13.5px]"
+              data-testid="input-star-search"
+            />
+            {q && (
+              <span className="shrink-0 text-[11.5px] tabular-nums text-muted-foreground" data-testid="text-search-count">
+                {noteHits + taskHits === 0
+                  ? "No matches"
+                  : [noteHits && `${noteHits} ${noteHits === 1 ? "note" : "notes"}`, taskHits && `${taskHits} ${taskHits === 1 ? "task" : "tasks"}`].filter(Boolean).join(" · ")}
+              </span>
+            )}
+            <button onClick={closeSearch} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground max-md:h-11 max-md:w-11" aria-label="Close search" data-testid="button-close-star-search">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {!narrow && (
         <>
@@ -829,7 +1079,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
       {tab === "tasks" ? (
         <>
           <div className="thin-scroll min-h-0 flex-1 overflow-y-auto px-5 py-4 md:px-6">
-            <TaskList star={star} tasks={starTasks} color={dot} actions={actions} narrow={narrow} openTaskId={openTaskId} onOpenTask={(id) => { setOpenTaskId(id); if (narrow && id != null) onSheetHeightChange("full"); }} />
+            <TaskList star={star} tasks={starTasks} color={dot} actions={actions} narrow={narrow} query={q} openTaskId={openTaskId} onOpenTask={(id) => { setOpenTaskId(id); if (narrow && id != null) onSheetHeightChange("full"); }} />
           </div>
           <div className="px-4 pb-3">
             <TaskComposer starId={star.id} actions={actions} />
@@ -864,7 +1114,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
         ) : (
           <ul className="space-y-6">
             {notes.map((n) => (
-              <NoteRow key={n.id} note={n} focused={glowNote === n.id} onDelete={() => setConfirmNote(n)} onSaved={() => actions.touchStar(star.id)} />
+              <NoteRow key={n.id} note={n} focused={glowNote === n.id} onDelete={() => setConfirmNote(n)} onSaved={() => actions.touchStar(star.id)} onTogglePin={() => togglePin(n)} query={q} />
             ))}
           </ul>
         )}

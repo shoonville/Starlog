@@ -10,6 +10,8 @@ export interface Note {
   id: number;
   starId: number;
   body: string;
+  /** Pinned notes stay at the top of the star's thread */
+  pinned: boolean;
   createdAt: Date;
   /**
      * Set when the note body was changed after creation

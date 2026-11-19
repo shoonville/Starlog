@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, Reorder, motion, useDragControls } from "framer-motion";
 import type { Star, Task, TaskPriority, TaskRepeat } from "@workspace/api-client-react";
-import { ArrowDownWideNarrow, Check, ChevronRight, Repeat2, Trash2, X } from "lucide-react";
+import { ArrowDownWideNarrow, CalendarDays, Check, ChevronRight, Repeat2, Trash2, X } from "lucide-react";
 import type { SkyActions } from "@/hooks/use-sky-actions";
 import { REPEAT_LABEL, formatDue, isOverdue, orderedOpenTasks, parseQuickAdd, todayStr } from "@/lib/tasks";
 import { hexToRgb } from "@/lib/sky";
+import { highlight, matchesQuery } from "@/lib/note-format";
 
 export const PRIORITY_DOT = "#FF8A4C";
 export const OVERDUE_TEXT = "text-[hsl(0_80%_76%)]";
@@ -139,11 +140,14 @@ function TaskDetails({ task, actions, onClose }: { task: Task; actions: SkyActio
 const HOLD_MS = 500;
 
 function TaskRow({
-  task, color, today, open, onOpen, actions, onDragStart, onDragEnd, touchOnly,
+  task, color, today, open, onOpen, actions, onDragStart, onDragEnd, touchOnly, query,
 }: {
   task: Task; color: string; today: string; open: boolean; onOpen: () => void; actions: SkyActions;
   onDragStart: () => void; onDragEnd: () => void; touchOnly: boolean;
+  /** Search text from the card's search; matches are highlighted and other tasks dimmed. */
+  query?: string;
 }) {
+  const dim = !!query?.trim() && !matchesQuery(task.title, query);
   const controls = useDragControls();
   const hold = useRef<{ timer: number; x: number; y: number } | null>(null);
   const dragged = useRef(false);
@@ -162,7 +166,7 @@ function TaskRow({
       dragControls={controls}
       onDragStart={() => { dragged.current = true; setLifted(true); onDragStart(); }}
       onDragEnd={() => { setLifted(false); onDragEnd(); window.setTimeout(() => { dragged.current = false; }, 50); }}
-      className="relative list-none"
+      className={`relative list-none transition-opacity duration-300 ${dim ? "opacity-35" : ""}`}
       style={{ zIndex: lifted ? 5 : 0 }}
       data-testid={`task-${task.id}`}
     >
@@ -196,7 +200,7 @@ function TaskRow({
       >
         <TaskCheck done={task.done} color={color} label={task.done ? `Mark "${task.title}" not done` : `Complete "${task.title}"`} onToggle={() => actions.editTask(task.id, { done: !task.done })} />
         <span className={`min-w-0 flex-1 truncate text-[14px] ${task.done ? "text-muted-foreground/60 line-through decoration-white/20" : "text-foreground/90"}`} data-testid={`text-task-title-${task.id}`}>
-          {task.title}
+          {highlight(task.title, query)}
         </span>
         <TaskMeta task={task} today={today} />
       </div>
@@ -218,10 +222,10 @@ function useScrollLock(active: boolean) {
 }
 
 export function TaskList({
-  star, tasks, color, actions, narrow, openTaskId, onOpenTask,
+  star, tasks, color, actions, narrow, openTaskId, onOpenTask, query,
 }: {
   star: Star; tasks: Task[]; color: string; actions: SkyActions; narrow: boolean;
-  openTaskId: number | null; onOpenTask: (id: number | null) => void;
+  openTaskId: number | null; onOpenTask: (id: number | null) => void; query?: string;
 }) {
   const today = todayStr();
   const sorted = useMemo(() => orderedOpenTasks(tasks, star.taskOrder), [tasks, star.taskOrder]);
@@ -230,6 +234,9 @@ export function TaskList({
   const [dragging, setDragging] = useState(false);
   const [doneOpen, setDoneOpen] = useState(false);
   useScrollLock(dragging);
+  // While searching, show finished tasks too if any of them match.
+  const doneMatch = !!query?.trim() && done.some((t) => matchesQuery(t.title, query));
+  useEffect(() => { if (doneMatch) setDoneOpen(true); }, [doneMatch]);
 
   // Follow outside changes (new tasks, edits, check-offs) unless a drag is in progress.
   useEffect(() => { if (!dragging) setOrder(sorted); }, [sorted]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -272,6 +279,7 @@ export function TaskList({
             onDragStart={() => { setDragging(true); onOpenTask(null); }}
             onDragEnd={commitOrder}
             touchOnly={false}
+            query={query}
           />
         ))}
       </Reorder.Group>
@@ -296,9 +304,9 @@ export function TaskList({
             {doneOpen && (
               <motion.ul initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
                 {done.map((t) => (
-                  <li key={t.id} className="flex min-h-11 items-center gap-3 px-1.5" data-testid={`task-done-${t.id}`}>
+                  <li key={t.id} className={`flex min-h-11 items-center gap-3 px-1.5 transition-opacity duration-300 ${query?.trim() && !matchesQuery(t.title, query) ? "opacity-35" : ""}`} data-testid={`task-done-${t.id}`}>
                     <TaskCheck done color={color} label={`Mark "${t.title}" not done`} onToggle={() => actions.editTask(t.id, { done: false })} />
-                    <span className="min-w-0 flex-1 truncate text-[13.5px] text-muted-foreground/60 line-through decoration-white/20">{t.title}</span>
+                    <span className="min-w-0 flex-1 truncate text-[13.5px] text-muted-foreground/60 line-through decoration-white/20">{highlight(t.title, query)}</span>
                     {t.repeat && <Repeat2 className="h-3 w-3 text-muted-foreground/50" />}
                   </li>
                 ))}
@@ -323,7 +331,25 @@ export function TaskComposer({ starId, actions }: { starId: number; actions: Sky
     actions.addTask(starId, { title, dueDate: parsed.dueDate, priority: parsed.priority, repeat: parsed.repeat });
     setText("");
   };
+  const preview = parsed ? [parsed.dueDate && formatDue(parsed.dueDate, today), parsed.repeat && REPEAT_LABEL[parsed.repeat], parsed.priority === "high" && "High"].filter(Boolean).join(" · ") : "";
   return (
+    <div>
+      <AnimatePresence initial={false}>
+        {preview && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.25 }}
+            className="overflow-hidden"
+          >
+            <div className="flex items-center gap-1.5 px-4 pb-1.5 text-[11.5px] text-muted-foreground" data-testid="text-new-task-preview">
+              <CalendarDays className="h-3 w-3 opacity-80" />
+              <span>{preview}</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     <form
       onSubmit={(e) => { e.preventDefault(); submit(); }}
       className="flex items-center gap-2 rounded-2xl bg-white/[0.045] py-1.5 pl-4 pr-1.5 transition-colors duration-500 focus-within:bg-white/[0.07]"
@@ -337,11 +363,6 @@ export function TaskComposer({ starId, actions }: { starId: number; actions: Sky
         className="quiet-input min-h-9 min-w-0 flex-1 text-[14px] max-md:min-h-11"
         data-testid="input-new-task"
       />
-      {parsed && (parsed.dueDate || parsed.repeat || parsed.priority === "high") && (
-        <span className="shrink-0 text-[11.5px] text-muted-foreground" data-testid="text-new-task-preview">
-          {[parsed.dueDate && formatDue(parsed.dueDate, today), parsed.repeat && REPEAT_LABEL[parsed.repeat], parsed.priority === "high" && "High"].filter(Boolean).join(" · ")}
-        </span>
-      )}
       <button
         type="submit"
         disabled={!text.trim()}
@@ -351,5 +372,6 @@ export function TaskComposer({ starId, actions }: { starId: number; actions: Sky
         Add
       </button>
     </form>
+    </div>
   );
 }

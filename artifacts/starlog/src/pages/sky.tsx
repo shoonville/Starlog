@@ -222,8 +222,8 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
   useEffect(() => { wake(); return () => clearTimeout(sleepTimer.current); }, [wake]);
 
   const focusStar = useCallback((id: number, opts?: { tab?: CardTab; keepTab?: boolean; star?: Star }) => {
-    // A star created a moment ago may not be in this render's list yet, so it can be passed in.
-    const st = sky.stars.find((s) => s.id === id) ?? opts?.star;
+    // A star created or moved a moment ago may not be up to date in this render's list, so it can be passed in.
+    const st = opts?.star ?? sky.stars.find((s) => s.id === id);
     if (!st) return;
     setSelectedId(id);
     if (opts?.tab) setCardTab(opts.tab);
@@ -757,6 +757,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
         tab={cardTab}
         onTabChange={setCardTab}
         onSwitchStar={(id) => { setFocusNote(null); focusStar(id, { keepTab: true }); }}
+        onStarMoved={(st) => focusStar(st.id, { keepTab: true, star: st })}
         constellations={cviews}
         onPickConstellation={(cv: ConstellationView) => { setFocusNote(null); if (cv.members[0] != null) focusStar(cv.members[0]); }}
       />

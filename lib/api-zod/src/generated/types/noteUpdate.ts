@@ -8,5 +8,6 @@
 
 export interface NoteUpdate {
   /** @maxLength 20000 */
-  body: string;
+  body?: string;
+  pinned?: boolean;
 }

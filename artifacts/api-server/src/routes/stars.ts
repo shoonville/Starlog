@@ -197,17 +197,23 @@ router.patch("/notes/:noteId", async (req, res) => {
     res.status(404).json({ error: "Note not found" });
     return;
   }
-  if (existing.body === body.body) {
+  const bodyChanged = body.body !== undefined && body.body !== existing.body;
+  const pinChanged = body.pinned !== undefined && body.pinned !== existing.pinned;
+  if (!bodyChanged && !pinChanged) {
     res.json(UpdateNoteResponse.parse(serializeNote(existing)));
     return;
   }
 
+  // Pinning isn't writing, so it neither marks the note edited nor bumps the star.
   const [note] = await db
     .update(notesTable)
-    .set({ body: body.body, editedAt: new Date() })
+    .set({
+      ...(bodyChanged ? { body: body.body, editedAt: new Date() } : {}),
+      ...(pinChanged ? { pinned: body.pinned } : {}),
+    })
     .where(eq(notesTable.id, noteId))
     .returning();
-  await touchStar(note!.starId);
+  if (bodyChanged) await touchStar(note!.starId);
   res.json(UpdateNoteResponse.parse(serializeNote(note!)));
 });
 

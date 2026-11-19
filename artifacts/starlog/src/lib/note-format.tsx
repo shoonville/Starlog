@@ -9,26 +9,54 @@ import { Fragment, type ReactNode } from "react";
 const BULLET = /^\s*[-*]\s+/;
 const INLINE = /(\*\*[^*\n]+?\*\*|\*[^*\s\n](?:[^*\n]*?[^*\s\n])?\*)/g;
 
-function inline(text: string, keyBase: string): ReactNode[] {
+/** True when `text` contains the (trimmed, case-insensitive) search query. */
+export function matchesQuery(text: string, query: string | null | undefined) {
+  const q = query?.trim().toLocaleLowerCase();
+  return !!q && text.toLocaleLowerCase().includes(q);
+}
+
+/** Splits text around search matches and wraps each match in a soft highlight. */
+export function highlight(text: string, query: string | null | undefined, keyBase = "h"): ReactNode[] {
+  const q = query?.trim().toLocaleLowerCase();
+  if (!q) return [text];
+  const lower = text.toLocaleLowerCase();
+  const out: ReactNode[] = [];
+  let from = 0;
+  let i = 0;
+  for (let at = lower.indexOf(q); at >= 0; at = lower.indexOf(q, at + q.length)) {
+    if (at > from) out.push(text.slice(from, at));
+    out.push(<mark key={`${keyBase}-m${i++}`} className="search-hit rounded-[3px] bg-[hsl(46_95%_70%/0.3)] px-[1px] text-foreground">{text.slice(at, at + q.length)}</mark>);
+    from = at + q.length;
+  }
+  if (from < text.length) out.push(text.slice(from));
+  return out;
+}
+
+function inline(text: string, keyBase: string, query?: string): ReactNode[] {
   const out: ReactNode[] = [];
   let last = 0;
   let i = 0;
   for (const m of text.matchAll(INLINE)) {
     const idx = m.index ?? 0;
-    if (idx > last) out.push(text.slice(last, idx));
+    if (idx > last) out.push(...highlight(text.slice(last, idx), query, `${keyBase}-t${i++}`));
     const tok = m[0];
     if (tok.startsWith("**")) {
-      out.push(<strong key={`${keyBase}-${i++}`} className="font-semibold text-foreground">{tok.slice(2, -2)}</strong>);
+      out.push(<strong key={`${keyBase}-${i++}`} className="font-semibold text-foreground">{highlight(tok.slice(2, -2), query, `${keyBase}-s${i}`)}</strong>);
     } else {
-      out.push(<em key={`${keyBase}-${i++}`} className="italic">{tok.slice(1, -1)}</em>);
+      out.push(<em key={`${keyBase}-${i++}`} className="italic">{highlight(tok.slice(1, -1), query, `${keyBase}-e${i}`)}</em>);
     }
     last = idx + tok.length;
   }
-  if (last < text.length) out.push(text.slice(last));
+  if (last < text.length) out.push(...highlight(text.slice(last), query, `${keyBase}-t${i++}`));
   return out;
 }
 
-export function FormattedNote({ body }: { body: string }) {
+/** Note text without Markdown markers, for copying as plain text. */
+export function plainNote(body: string) {
+  return body.replace(/\*\*([^*\n]+?)\*\*/g, "$1").replace(/\*([^*\s\n](?:[^*\n]*?[^*\s\n])?)\*/g, "$1").replace(/^\s*\*\s+/gm, "- ");
+}
+
+export function FormattedNote({ body, query }: { body: string; query?: string }) {
   const lines = body.split("\n");
   const blocks: ReactNode[] = [];
   let list: string[] = [];
@@ -41,7 +69,7 @@ export function FormattedNote({ body }: { body: string }) {
         {list.map((li, j) => (
           <li key={j} className="relative pl-4">
             <span className="absolute left-0.5 top-[0.7em] h-[3px] w-[3px] rounded-full bg-current opacity-60" />
-            {inline(li, `li-${k}-${j}`)}
+            {inline(li, `li-${k}-${j}`, query)}
           </li>
         ))}
       </ul>,
@@ -56,7 +84,7 @@ export function FormattedNote({ body }: { body: string }) {
         {para.map((ln, j) => (
           <Fragment key={j}>
             {j > 0 && "\n"}
-            {inline(ln, `p-${k}-${j}`)}
+            {inline(ln, `p-${k}-${j}`, query)}
           </Fragment>
         ))}
       </p>,

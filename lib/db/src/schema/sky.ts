@@ -69,6 +69,7 @@ export const notesTable = pgTable(
       .notNull()
       .defaultNow(),
     editedAt: timestamp("edited_at", { withTimezone: true }),
+    pinned: boolean("pinned").notNull().default(false),
   },
   (t) => [
     index("notes_star_idx").on(t.starId),

@@ -331,6 +331,7 @@ export const ListStarNotesResponseItem = zod.object({
   "id": zod.number().int(),
   "starId": zod.number().int(),
   "body": zod.string(),
+  "pinned": zod.boolean().describe('Pinned notes stay at the top of the star\'s thread'),
   "createdAt": zod.coerce.date(),
   "editedAt": zod.coerce.date().nullable().describe('Set when the note body was changed after creation')
 })
@@ -356,6 +357,7 @@ export const CreateNoteResponse = zod.object({
   "id": zod.number().int(),
   "starId": zod.number().int(),
   "body": zod.string(),
+  "pinned": zod.boolean().describe('Pinned notes stay at the top of the star\'s thread'),
   "createdAt": zod.coerce.date(),
   "editedAt": zod.coerce.date().nullable().describe('Set when the note body was changed after creation')
 })
@@ -480,13 +482,15 @@ export const updateNoteBodyBodyMax = 20000;
 
 
 export const UpdateNoteBody = zod.object({
-  "body": zod.string().max(updateNoteBodyBodyMax)
+  "body": zod.string().max(updateNoteBodyBodyMax).optional(),
+  "pinned": zod.boolean().optional()
 })
 
 export const UpdateNoteResponse = zod.object({
   "id": zod.number().int(),
   "starId": zod.number().int(),
   "body": zod.string(),
+  "pinned": zod.boolean().describe('Pinned notes stay at the top of the star\'s thread'),
   "createdAt": zod.coerce.date(),
   "editedAt": zod.coerce.date().nullable().describe('Set when the note body was changed after creation')
 })

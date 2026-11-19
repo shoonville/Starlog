@@ -1,4 +1,4 @@
-import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
+import { addDays, addMonths, differenceInCalendarDays, format, parseISO } from "date-fns";
 import type { Label, Star, Task, TaskPriority, TaskRepeat } from "@workspace/api-client-react";
 
 /** Today's calendar day in the viewer's own time zone, as YYYY-MM-DD. */
@@ -68,9 +68,16 @@ export function parseQuickAdd(input: string, now = new Date()): ParsedTask {
   let repeat: TaskRepeat = null;
   let priority: TaskPriority = "normal";
   let tag: string | null = null;
-  const take = (re: RegExp, fn: (m: RegExpMatchArray) => boolean | void) => {
-    const m = text.match(re);
-    if (m && fn(m) !== false) text = text.replace(m[0], " ");
+  // Removes the first match that `fn` accepts; a rejected match lets the search go on further along.
+  const take = (re: RegExp, fn: (m: RegExpExecArray) => boolean | void) => {
+    const g = new RegExp(re.source, re.flags.includes("g") ? re.flags : `${re.flags}g`);
+    for (let m = g.exec(text); m; m = g.exec(text)) {
+      if (fn(m) !== false) {
+        text = `${text.slice(0, m.index)} ${text.slice(m.index + m[0].length)}`;
+        return;
+      }
+      g.lastIndex = m.index + 1;
+    }
   };
   const day = (d: Date) => format(d, "yyyy-MM-dd");
 
@@ -80,24 +87,37 @@ export function parseQuickAdd(input: string, now = new Date()): ParsedTask {
   take(/\s(?:every\s+day|daily)(?=\s)/i, () => { repeat = "daily"; });
   take(/\s(?:every\s+week|weekly)(?=\s)/i, () => { repeat = "weekly"; });
   take(/\s(?:every\s+month|monthly)(?=\s)/i, () => { repeat = "monthly"; });
-  take(/\s(?:on\s+)?(\d{4}-\d{2}-\d{2})(?=\s)/, (m) => { dueDate = m[1]!; });
-  if (!dueDate) take(/\s(?:on\s+|due\s+)?today(?=\s)/i, () => { dueDate = day(now); });
-  if (!dueDate) take(/\s(?:on\s+|due\s+)?(?:tomorrow|tmrw?)(?=\s)/i, () => { dueDate = day(addDays(now, 1)); });
+  // Words that may lead into a date ("on Friday", "by tomorrow", "due this Friday").
+  const P = "(?:(?:on|by|due|before)\\s+)?";
+  take(new RegExp(`\\s${P}(\\d{4}-\\d{2}-\\d{2})(?=\\s)`), (m) => { dueDate = m[1]!; });
+  if (!dueDate) take(new RegExp(`\\s${P}(?:today|tonight|this\\s+(?:morning|afternoon|evening))(?=\\s)`, "i"), () => { dueDate = day(now); });
+  if (!dueDate) take(new RegExp(`\\s${P}(?:tomorrow|tmrw?)(?:\\s+(?:morning|afternoon|evening|night))?(?=\\s)`, "i"), () => { dueDate = day(addDays(now, 1)); });
   if (!dueDate) take(/\sin\s+(\d{1,3})\s+days?(?=\s)/i, (m) => { dueDate = day(addDays(now, Number(m[1]))); });
+  if (!dueDate) take(/\sin\s+(\d{1,2})\s+weeks?(?=\s)/i, (m) => { dueDate = day(addDays(now, 7 * Number(m[1]))); });
+  if (!dueDate) take(/\sin\s+a\s+week(?=\s)/i, () => { dueDate = day(addDays(now, 7)); });
   if (!dueDate) take(/\snext\s+week(?=\s)/i, () => { dueDate = day(addDays(now, 7)); });
+  if (!dueDate) take(/\s(?:next\s+month|in\s+a\s+month)(?=\s)/i, () => { dueDate = day(addMonths(now, 1)); });
   if (!dueDate) {
-    take(/\s(?:on\s+|due\s+)?(next\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday|tues?|thu(?:rs?)?|fri)(?=\s)/i, (m) => {
+    take(new RegExp(`\\s${P}(this\\s+|next\\s+)?weekend(?=\\s)`, "i"), (m) => {
+      let diff = (6 - now.getDay() + 7) % 7;
+      if (now.getDay() === 0) diff = 0; // it's already the weekend
+      if (m[1]?.toLowerCase().startsWith("next")) diff += 7;
+      dueDate = day(addDays(now, diff));
+    });
+  }
+  if (!dueDate) {
+    take(new RegExp(`\\s${P}(next\\s+|this\\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday|tues?|thu(?:rs?)?|fri)(?=\\s)`, "i"), (m) => {
       const w = m[2]!.toLowerCase().slice(0, 3);
       const idx = WEEKDAY_SHORT.indexOf(w);
       if (idx < 0) return false;
       let diff = (idx - now.getDay() + 7) % 7;
-      if (m[1] && diff === 0) diff = 7;
+      if (m[1]?.toLowerCase().startsWith("next") && diff === 0) diff = 7;
       dueDate = day(addDays(now, diff));
       return true;
     });
   }
   if (!dueDate) {
-    take(/\s(?:on\s+|due\s+)?(?:(\d{1,2})\s+([a-z]{3,9})|([a-z]{3,9})\s+(\d{1,2}))(?:st|nd|rd|th)?(?=\s)/i, (m) => {
+    take(new RegExp(`\\s${P}(?:(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?([a-z]{3,9})|([a-z]{3,9})\\s+(\\d{1,2})(?:st|nd|rd|th)?)(?=\\s)`, "i"), (m) => {
       const mon = (m[2] ?? m[3]!).toLowerCase().slice(0, 3);
       const mi = MONTHS.indexOf(mon);
       const dd = Number(m[1] ?? m[4]);
@@ -107,6 +127,18 @@ export function parseQuickAdd(input: string, now = new Date()): ParsedTask {
       if (differenceInCalendarDays(d, now) < -14) d = new Date(now.getFullYear() + 1, mi, dd);
       dueDate = day(d);
       return true;
+    });
+  }
+  if (!dueDate) {
+    // "by the 1st", "on the 15th": the next time that day of the month comes round.
+    take(new RegExp(`\\s${P}(?:the\\s+)?(\\d{1,2})(?:st|nd|rd|th)(?=\\s)`, "i"), (m) => {
+      const dd = Number(m[1]);
+      if (dd < 1 || dd > 31) return false;
+      for (let k = 0; k < 3; k++) {
+        const d = new Date(now.getFullYear(), now.getMonth() + k, dd);
+        if (d.getDate() === dd && differenceInCalendarDays(d, now) >= 0) { dueDate = day(d); return true; }
+      }
+      return false;
     });
   }
   const title = text.replace(/\s+/g, " ").trim();

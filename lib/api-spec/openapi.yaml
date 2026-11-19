@@ -920,11 +920,14 @@ components:
 
     Note:
       type: object
-      required: [id, starId, body, createdAt, editedAt]
+      required: [id, starId, body, createdAt, editedAt, pinned]
       properties:
         id: { type: integer }
         starId: { type: integer }
         body: { type: string }
+        pinned:
+          type: boolean
+          description: Pinned notes stay at the top of the star's thread
         createdAt:
           type: string
           format: date-time
@@ -1021,11 +1024,12 @@ components:
           maxLength: 20000
     NoteUpdate:
       type: object
-      required: [body]
       properties:
         body:
           type: string
           maxLength: 20000
+        pinned:
+          type: boolean
 
     Label:
       type: object

@@ -93,6 +93,7 @@ export function serializeNote(n: NoteRow) {
     body: n.body,
     createdAt: n.createdAt,
     editedAt: n.editedAt,
+    pinned: n.pinned,
   };
 }
 
