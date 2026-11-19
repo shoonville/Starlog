@@ -4,6 +4,8 @@
 
 Starlog is a visual journal for projects, goals, habits, and everyday thoughts. Each one is a star in a personal night sky, with notes and tasks inside. Connect related stars into constellations and use the Today panel to see what is due.
 
+![Starlog’s demo night sky, with colored stars arranged into named constellations on a dark canvas.](artifacts/starlog/public/starlog-night-sky.jpg)
+
 ## Features
 
 - A pan-and-zoom night sky for organizing the parts of your life
