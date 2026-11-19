@@ -55,23 +55,82 @@ function LabelEditor({ label, actions, onDone }: { label: Label; actions: SkyAct
   );
 }
 
+const LEGEND_OPEN_KEY = "starlog.legendOpen";
+
+const dotStyle = (hex: string) => ({ background: brighten(hex), boxShadow: `0 0 8px rgba(${hexToRgb(hex).join(",")},0.7), 0 0 2px ${brighten(hex)}` });
+
+type LegendProps = {
+  labels: Label[];
+  active: number | null;
+  onToggle: (id: number) => void;
+  actions: SkyActions;
+  dimmed: boolean;
+};
+
+/**
+ * Phones: a small pill of colored dots. Tapping it opens the full legend just above;
+ * tapping anywhere else closes it. The open/closed choice is remembered.
+ */
+export function CompactLegend(props: LegendProps) {
+  const { labels, active, dimmed } = props;
+  const [open, setOpenState] = useState(() => localStorage.getItem(LEGEND_OPEN_KEY) === "1");
+  const setOpen = (v: boolean) => {
+    setOpenState(v);
+    localStorage.setItem(LEGEND_OPEN_KEY, v ? "1" : "0");
+  };
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Element | null;
+      if (!t || ref.current?.contains(t) || t.closest("[data-radix-popper-content-wrapper]")) return;
+      setOpenState(false);
+      localStorage.setItem(LEGEND_OPEN_KEY, "0");
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, [open]);
+  const activeLabel = labels.find((l) => l.id === active);
+  return (
+    <div ref={ref} className="relative">
+      {open && (
+        <div className="absolute bottom-[calc(100%+8px)] left-0 w-56 rise">
+          <Legend {...props} dimmed={false} touch />
+        </div>
+      )}
+      <button
+        onClick={() => setOpen(!open)}
+        aria-label={open ? "Hide labels" : "Show labels"}
+        aria-expanded={open}
+        className={`sky-pill flex h-11 min-w-11 items-center gap-1.5 rounded-full px-3.5 transition-opacity duration-700 soft-ease ${dimmed && !open ? "opacity-40" : "opacity-100"}`}
+        data-testid="button-legend-pill"
+      >
+        {labels.length === 0 ? (
+          <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+        ) : (
+          labels.slice(0, 8).map((l) => (
+            <span key={l.id} className={`h-2 w-2 shrink-0 rounded-full transition-opacity duration-500 ${active != null && active !== l.id ? "opacity-30" : ""}`} style={dotStyle(l.color)} />
+          ))
+        )}
+        {activeLabel && <span className="ml-1 max-w-[7rem] truncate text-[12px] text-foreground/85">{activeLabel.name}</span>}
+      </button>
+    </div>
+  );
+}
+
 export function Legend({
   labels,
   active,
   onToggle,
   actions,
   dimmed,
-}: {
-  labels: Label[];
-  active: number | null;
-  onToggle: (id: number) => void;
-  actions: SkyActions;
-  dimmed: boolean;
-}) {
+  touch = false,
+}: LegendProps & { touch?: boolean }) {
   const [editing, setEditing] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [color, setColor] = useState(PALETTE[0].hex);
+  const rowPad = touch ? "py-2.5" : "py-1.5";
   return (
     <div className={`sky-pill rounded-2xl px-2 py-2 transition-opacity duration-700 soft-ease ${dimmed ? "opacity-30 hover:opacity-100" : "opacity-100"}`} data-testid="legend">
       <ul className="flex flex-col">
@@ -79,20 +138,20 @@ export function Legend({
           <li key={l.id} className="group flex items-center">
             <button
               onClick={() => onToggle(l.id)}
-              className={`flex flex-1 items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-[12.5px] transition-all duration-500 soft-ease ${active === l.id ? "bg-white/10 text-foreground" : active != null ? "text-foreground/45 hover:text-foreground/80" : "text-foreground/[0.82] hover:text-foreground"}`}
+              className={`flex flex-1 items-center gap-2.5 rounded-lg px-2 ${rowPad} text-left text-[12.5px] transition-all duration-500 soft-ease ${active === l.id ? "bg-white/10 text-foreground" : active != null ? "text-foreground/45 hover:text-foreground/80" : "text-foreground/[0.82] hover:text-foreground"}`}
               data-testid={`button-legend-${l.id}`}
             >
-              <span className="h-2 w-2 shrink-0 rounded-full transition-colors duration-700" style={{ background: brighten(l.color), boxShadow: `0 0 8px rgba(${hexToRgb(l.color).join(",")},0.7), 0 0 2px ${brighten(l.color)}` }} />
+              <span className="h-2 w-2 shrink-0 rounded-full transition-colors duration-700" style={dotStyle(l.color)} />
               <span className="max-w-[9rem] truncate">{l.name}</span>
               <span className="ml-auto pl-3 text-[11px] tabular-nums opacity-[0.62]">{l.starCount}</span>
             </button>
             <Popover open={editing === l.id} onOpenChange={(o) => setEditing(o ? l.id : null)}>
               <PopoverTrigger asChild>
-                <button className="rounded-md p-1 text-muted-foreground/60 opacity-0 transition-opacity duration-300 hover:text-foreground group-hover:opacity-100 focus:opacity-100" aria-label={`Edit ${l.name}`} data-testid={`button-edit-label-${l.id}`}>
+                <button className={`rounded-md text-muted-foreground/60 transition-opacity duration-300 hover:text-foreground group-hover:opacity-100 focus:opacity-100 ${touch ? "p-3 opacity-70" : "p-1 opacity-0"}`} aria-label={`Edit ${l.name}`} data-testid={`button-edit-label-${l.id}`}>
                   <Pencil className="h-3 w-3" />
                 </button>
               </PopoverTrigger>
-              <PopoverContent side="right" align="end" className="sky-glass w-60 rounded-2xl border-0 p-4">
+              <PopoverContent side={touch ? "top" : "right"} align="end" className="sky-glass w-60 rounded-2xl border-0 p-4">
                 <LabelEditor label={l} actions={actions} onDone={() => setEditing(null)} />
               </PopoverContent>
             </Popover>
@@ -101,11 +160,11 @@ export function Legend({
       </ul>
       <Popover open={creating} onOpenChange={setCreating}>
         <PopoverTrigger asChild>
-          <button className="mt-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[12px] text-muted-foreground/70 transition-colors hover:text-foreground" data-testid="button-new-label">
+          <button className={`mt-0.5 flex w-full items-center gap-2 rounded-lg px-2 ${rowPad} text-[12px] text-muted-foreground/70 transition-colors hover:text-foreground`} data-testid="button-new-label">
             <Plus className="h-3 w-3" /> {labels.length ? "New label" : "Add a label"}
           </button>
         </PopoverTrigger>
-        <PopoverContent side="right" align="end" className="sky-glass w-60 rounded-2xl border-0 p-4">
+        <PopoverContent side={touch ? "top" : "right"} align={touch ? "start" : "end"} className="sky-glass w-60 rounded-2xl border-0 p-4">
           <form
             className="space-y-3"
             onSubmit={(e) => {

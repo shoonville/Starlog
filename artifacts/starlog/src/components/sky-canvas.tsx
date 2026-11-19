@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import type { Connection, Label, Star } from "@workspace/api-client-react";
-import { DEFAULT_STAR, MAX_ZOOM, MIN_ZOOM, starRadius, type ConstellationView } from "@/lib/sky";
+import { DEFAULT_STAR, MAX_ZOOM, MIN_ZOOM, hexToRgb, lighten, starRadius, type ConstellationView } from "@/lib/sky";
 import { getSprite, Starfield } from "@/lib/starfield";
 
 export type SkyCanvasHandle = {
@@ -19,6 +19,8 @@ type Props = {
   connectMode: boolean;
   connectFrom: number | null;
   cutoff: number | null;
+  /** Share of a star's tasks that are done (0..1), only for stars that have tasks. */
+  taskProgress?: Map<number, number>;
   onStarTap: (id: number) => void;
   onBackground: () => void;
   onCreateAt: (x: number, y: number) => void;
@@ -58,6 +60,22 @@ function segDist(px: number, py: number, ax: number, ay: number, bx: number, by:
 }
 
 type Rect = { left: number; top: number; right: number; bottom: number };
+
+const rectsOverlap = (a: Rect, b: Rect) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+
+/** Does the segment a→b pass through the rectangle? (Liang–Barsky clip) */
+function segHitsRect(ax: number, ay: number, bx: number, by: number, r: Rect) {
+  const dx = bx - ax, dy = by - ay;
+  let t0 = 0, t1 = 1;
+  const edges: Array<[number, number]> = [[-dx, ax - r.left], [dx, r.right - ax], [-dy, ay - r.top], [dy, r.bottom - ay]];
+  for (const [p, q] of edges) {
+    if (Math.abs(p) < 1e-9) { if (q < 0) return false; continue; }
+    const t = q / p;
+    if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; }
+    else { if (t < t0) return false; if (t < t1) t1 = t; }
+  }
+  return true;
+}
 
 /** Return portions of a line segment that do not pass through any exclusion rectangle. */
 function lineOutsideRects(ax: number, ay: number, bx: number, by: number, rects: Rect[]) {
@@ -123,6 +141,10 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
     bgPrev: null as null | { x: number; y: number },
     mouse: { x: -999, y: -999 },
     initialized: false,
+    /** Last chosen placement per constellation, so names don't hop between spots. */
+    namePick: new Map<number, number>(),
+    /** Eased task-progress values per star. */
+    ring: new Map<number, number>(),
   });
 
   useImperativeHandle(ref, () => ({
@@ -450,7 +472,7 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
         const title = st.title.length > 34 ? st.title.slice(0, 33) + "…" : st.title;
         return ctx.measureText(title).width / 2;
       });
-      ctx.font = "400 11px Inter, ui-sans-serif, sans-serif";
+      ctx.font = "500 11px Inter, ui-sans-serif, sans-serif";
       const byId = new Map(stars.map((st) => [st.id, st]));
       const cons = p.constellations
         .map((cv) => {
@@ -582,32 +604,76 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
         scr.set(st.id, toScreen(q.x, q.y));
       }
 
-      const nameLabels: Array<{ text: string; x: number; y: number; alpha: number; rect: Rect }> = [];
-      ctx.font = "400 11px Inter, ui-sans-serif, sans-serif";
+      const colorOfStar = (id: number) => {
+        const st = byId.get(id);
+        return st && st.labelId != null ? colorOf.get(st.labelId) ?? DEFAULT_STAR : DEFAULT_STAR;
+      };
+
+      // Constellation names: pick a spot near the group that covers no star and no line.
+      const zoomTitleVis = Math.max(0, Math.min(1, (z - 0.8) / 0.45));
+      const obstacles: Rect[] = [];
+      for (const st of p.stars) {
+        const q = scr.get(st.id)!, a = s.anim.get(st.id)!;
+        if (a.a < 0.2 || q.x < -200 || q.y < -200 || q.x > w + 200 || q.y > h + 200) continue;
+        const rr = visR(st.id) * 1.5 + 5;
+        obstacles.push({ left: q.x - rr, right: q.x + rr, top: q.y - rr, bottom: q.y + rr });
+        if (zoomTitleVis > 0.15 || a.sel > 0.1) {
+          const tw = Math.min(st.title.length, 34) * 3.3 + 6;
+          obstacles.push({ left: q.x - tw, right: q.x + tw, top: q.y + visR(st.id) + 7, bottom: q.y + visR(st.id) + 23 });
+        }
+      }
+      const lineSegs: Array<[number, number, number, number]> = [];
+      for (const c of p.connections) {
+        const pa = scr.get(c.fromStarId), pb = scr.get(c.toStarId);
+        if (pa && pb) lineSegs.push([pa.x, pa.y, pb.x, pb.y]);
+      }
+      const nameLabels: Array<{ text: string; x: number; y: number; alpha: number; rect: Rect; rgb: [number, number, number] }> = [];
+      ctx.font = "500 11px Inter, ui-sans-serif, sans-serif";
       for (const cv of p.constellations) {
-        let sx = 0, sy = 0, maxY = -Infinity, al = 0, n = 0;
+        let sx = 0, sy = 0, maxY = -Infinity, minY = Infinity, minX = Infinity, maxX = -Infinity, al = 0, n = 0, maxR = 0;
+        const tally = new Map<string, number>();
         for (const id of cv.members) {
           const q = scr.get(id), a = s.anim.get(id);
           if (!q || !a) continue;
-          sx += q.x;
-          sy += q.y;
-          n++;
+          sx += q.x; sy += q.y; n++;
           al += a.a * a.dim;
-          if (q.y > maxY) maxY = q.y;
+          maxY = Math.max(maxY, q.y); minY = Math.min(minY, q.y);
+          maxX = Math.max(maxX, q.x); minX = Math.min(minX, q.x);
+          maxR = Math.max(maxR, visR(id));
+          const col = colorOfStar(id);
+          tally.set(col, (tally.get(col) ?? 0) + 1);
         }
         if (n < 2) continue;
         al /= n;
         const text = cv.name.toUpperCase().split("").join("\u200A");
-        const x = sx / n;
-        const y = Math.min(maxY + 30, sy / n + 90 * Math.min(z, 1.4));
+        const cx = sx / n, cy = sy / n;
         const half = ctx.measureText(text).width / 2 + 6;
-        nameLabels.push({
-          text,
-          x,
-          y,
-          alpha: 0.42 * al,
-          rect: { left: x - half, right: x + half, top: y - 3, bottom: y + 17 },
-        });
+        const gap = maxR * 1.5 + 14;
+        const cands: Array<[number, number]> = [
+          [cx, maxY + gap],
+          [cx, minY - gap - 14],
+          [maxX + gap + half, cy - 7],
+          [minX - gap - half, cy - 7],
+          [cx, maxY + gap + 22],
+          [cx, minY - gap - 36],
+          [cx - half * 0.8, maxY + gap],
+          [cx + half * 0.8, maxY + gap],
+          [cx, maxY + gap + 48],
+          [cx, minY - gap - 62],
+        ];
+        const rectAt = ([x, y]: [number, number]): Rect => ({ left: x - half, right: x + half, top: y - 3, bottom: y + 16 });
+        const free = (r: Rect) =>
+          !obstacles.some((o) => rectsOverlap(o, r)) &&
+          !nameLabels.some((l) => rectsOverlap(l.rect, r)) &&
+          !lineSegs.some(([x1, y1, x2, y2]) => segHitsRect(x1, y1, x2, y2, r));
+        const prev = s.namePick.get(cv.id);
+        let pick = prev != null && prev < cands.length && free(rectAt(cands[prev]!)) ? prev : cands.findIndex((c) => free(rectAt(c)));
+        if (pick < 0) pick = 0;
+        s.namePick.set(cv.id, pick);
+        const [x, y] = cands[pick]!;
+        let best = DEFAULT_STAR, bestN = 0;
+        for (const [col, k] of tally) if (k > bestN) { best = col; bestN = k; }
+        nameLabels.push({ text, x, y, alpha: 0.62 * al, rect: rectAt([x, y]), rgb: lighten(best, 0.45) });
       }
       const labelRects = nameLabels.map((l) => l.rect);
 
@@ -633,10 +699,20 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
         const endY = pa.y + (pb.y - pa.y) * progress;
         const segments = lineOutsideRects(pa.x, pa.y, endX, endY, labelRects);
         const hov = s.hoverLine === c.id;
+        // Lines take the colors of their two stars, at low opacity.
+        const [r1, g1, b1] = hexToRgb(colorOfStar(c.fromStarId));
+        const [r2, g2, b2] = hexToRgb(colorOfStar(c.toStarId));
+        const lineStyle = (alpha: number) => {
+          if (r1 === r2 && g1 === g2 && b1 === b2) return `rgba(${r1},${g1},${b1},${alpha})`;
+          const grad = ctx.createLinearGradient(pa.x, pa.y, pb.x, pb.y);
+          grad.addColorStop(0, `rgba(${r1},${g1},${b1},${alpha})`);
+          grad.addColorStop(1, `rgba(${r2},${g2},${b2},${alpha})`);
+          return grad;
+        };
         // Lines touching a hovered star glow softly (eased via the star's hover value).
         const glow = p.connectMode || s.link ? 0 : Math.max(aa.hover, ab.hover);
         if (glow > 0.02 && !hov) {
-          ctx.strokeStyle = `rgba(244,224,196,${0.09 * glow * al})`;
+          ctx.strokeStyle = lineStyle(0.08 * glow * al);
           ctx.lineWidth = 6;
           for (const [x1, y1, x2, y2] of segments) {
             ctx.beginPath();
@@ -644,7 +720,7 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
             ctx.lineTo(x2, y2);
             ctx.stroke();
           }
-          ctx.strokeStyle = `rgba(244,224,196,${0.16 * glow * al})`;
+          ctx.strokeStyle = lineStyle(0.14 * glow * al);
           ctx.lineWidth = 3;
           for (const [x1, y1, x2, y2] of segments) {
             ctx.beginPath();
@@ -654,10 +730,8 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
           }
         }
         ctx.strokeStyle = hov
-          ? `rgba(244,214,190,${0.75 * al})`
-          : glow > 0.02
-            ? `rgba(${Math.round(214 + 30 * glow)},${Math.round(200 + 24 * glow)},${Math.round(250 - 54 * glow)},${(0.24 + 0.4 * glow) * al})`
-            : `rgba(214,200,250,${(0.24 + (1 - progress) * 0.15) * al})`;
+          ? lineStyle(0.8 * al)
+          : lineStyle((0.3 + 0.35 * glow + (1 - progress) * 0.2) * al);
         ctx.lineWidth = hov ? 1.6 : 1 + 0.3 * glow;
         for (const [x1, y1, x2, y2] of segments) {
           ctx.beginPath();
@@ -669,7 +743,7 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
           const mx = (pa.x + pb.x) / 2, my = (pa.y + pb.y) / 2;
           if (labelRects.some((r) => mx >= r.left && mx <= r.right && my >= r.top && my <= r.bottom)) continue;
           ctx.fillStyle = "rgba(17,17,20,0.95)";
-          ctx.strokeStyle = "rgba(244,214,190,0.7)";
+          ctx.strokeStyle = "rgba(244,236,226,0.7)";
           ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.arc(mx, my, 8, 0, Math.PI * 2);
@@ -691,7 +765,7 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
         if (tgtId != null && tgtId !== previewFrom && scr.get(tgtId)) { tx = scr.get(tgtId)!.x; ty = scr.get(tgtId)!.y; }
         if (a && tx > -900) {
           ctx.setLineDash([3, 5]);
-          ctx.strokeStyle = "rgba(244,224,196,0.55)";
+          ctx.strokeStyle = `rgba(${lighten(colorOfStar(previewFrom), 0.3).join(",")},0.6)`;
           ctx.lineWidth = 1;
           for (const [x1, y1, x2, y2] of lineOutsideRects(a.x, a.y, tx, ty, labelRects)) {
             ctx.beginPath();
@@ -710,23 +784,43 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
         const q = scr.get(st.id)!;
         if (a.a < 0.01 || q.x < -margin || q.y < -margin || q.x > w + margin || q.y > h + margin) continue;
         const vr = visR(st.id) * (0.2 + 0.8 * a.a);
-        const color = st.labelId != null ? colorOf.get(st.labelId) ?? DEFAULT_STAR : DEFAULT_STAR;
+        const color = colorOfStar(st.id);
         const spr = getSprite(color);
         const shimmer = 0.92 + 0.08 * Math.sin(t * 0.7 + st.id * 1.7);
         ctx.globalAlpha = a.a * a.dim * Math.min(1, shimmer + 0.12 * a.hover + 0.1 * a.sel);
-        const half = vr * 5;
+        const half = vr * 4;
         ctx.drawImage(spr, q.x - half, q.y - half, half * 2, half * 2);
+        // Task progress: a thin, faint ring in the star's color that fills as tasks get done.
+        const target = p.taskProgress?.get(st.id);
+        if (target !== undefined) {
+          const cur = s.ring.get(st.id) ?? target;
+          const val = cur + (target - cur) * ka;
+          s.ring.set(st.id, val);
+          const rr = vr + 6;
+          ctx.lineWidth = 1;
+          ctx.strokeStyle = color;
+          ctx.globalAlpha = 0.13 * a.a * a.dim;
+          ctx.beginPath();
+          ctx.arc(q.x, q.y, rr, 0, Math.PI * 2);
+          ctx.stroke();
+          if (val > 0.005) {
+            ctx.globalAlpha = 0.5 * a.a * a.dim;
+            ctx.beginPath();
+            ctx.arc(q.x, q.y, rr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, val));
+            ctx.stroke();
+          }
+        } else if (s.ring.has(st.id)) s.ring.delete(st.id);
         if (a.sel > 0.02) {
           ctx.globalAlpha = 0.4 * a.sel * a.a;
           ctx.strokeStyle = color;
           ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.arc(q.x, q.y, vr + 10 + Math.sin(t * 1.4) * 1.6, 0, Math.PI * 2);
+          ctx.arc(q.x, q.y, vr + (p.taskProgress?.has(st.id) ? 13 : 12) + Math.sin(t * 1.4) * 1.6, 0, Math.PI * 2);
           ctx.stroke();
         }
         if (a.hover > 0.02 && !p.connectMode && !s.link && s.g.kind === "none") {
           ctx.globalAlpha = a.hover * (s.hoverRing ? 0.55 : 0.16);
-          ctx.strokeStyle = "#f4e4c4";
+          ctx.strokeStyle = color;
           ctx.setLineDash(s.hoverRing ? [] : [2, 4]);
           ctx.beginPath();
           ctx.arc(q.x, q.y, Math.max(vr, 7) + 12, 0, Math.PI * 2);
@@ -737,7 +831,7 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
       ctx.globalAlpha = 1;
 
       // titles
-      const zoomTitle = Math.max(0, Math.min(1, (z - 0.8) / 0.45));
+      const zoomTitle = zoomTitleVis;
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       ctx.font = "500 11.5px Inter, ui-sans-serif, sans-serif";
@@ -753,8 +847,9 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
       }
 
       // Names are drawn over a clear gap: connection strokes are clipped around each label.
+      ctx.font = "500 11px Inter, ui-sans-serif, sans-serif";
       for (const label of nameLabels) {
-        ctx.fillStyle = `rgba(206,192,240,${label.alpha})`;
+        ctx.fillStyle = `rgba(${label.rgb.join(",")},${label.alpha})`;
         ctx.fillText(label.text, label.x, label.y);
       }
     };

@@ -9,6 +9,7 @@ import type { Connection } from './connection';
 import type { Constellation } from './constellation';
 import type { Label } from './label';
 import type { Star } from './star';
+import type { Task } from './task';
 
 export interface Sky {
   /** True when the current session is a guest demo sky (not saved to an account) */
@@ -17,4 +18,5 @@ export interface Sky {
   stars: Star[];
   connections: Connection[];
   constellations: Constellation[];
+  tasks: Task[];
 }

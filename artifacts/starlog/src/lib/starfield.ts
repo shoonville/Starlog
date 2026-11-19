@@ -30,10 +30,10 @@ export class Starfield {
   constructor(seed = 7) {
     const r = rng(seed);
     // Generated for up to 4,000,000 CSS px²; the viewport area decides how many are used.
-    const far: Dot[] = Array.from({ length: 560 }, () => ({ x: r(), y: r(), r: 0.5, a: 0.1 + r() * 0.16 }));
+    const far: Dot[] = Array.from({ length: 560 }, () => ({ x: r(), y: r(), r: 0.5, a: 0.06 + r() * 0.1 }));
     const near: Dot[] = Array.from({ length: 280 }, () => {
       const big = r() < 0.3;
-      return { x: r(), y: r(), r: big ? 0.85 + r() * 0.15 : 0.5 + r() * 0.2, a: 0.18 + r() * 0.24 };
+      return { x: r(), y: r(), r: big ? 0.85 + r() * 0.15 : 0.5 + r() * 0.2, a: 0.1 + r() * 0.15 };
     });
     this.layers = [
       { depth: 0.5, dots: far, tile: null },
@@ -43,7 +43,7 @@ export class Starfield {
       x: r(),
       y: r(),
       r: 0.55 + r() * 0.35,
-      a: 0.22 + r() * 0.2,
+      a: 0.13 + r() * 0.13,
       sp: (Math.PI * 2) / (9 + r() * 9), // one slow breath every 9–18s
       ph: r() * Math.PI * 2,
     }));
@@ -123,23 +123,29 @@ export class Starfield {
 
 const spriteCache = new Map<string, HTMLCanvasElement>();
 
-/** Soft glow sprite; core sits at ~7% of radius, color halo fades to 0 at the edge. */
+/**
+ * Soft star sprite tinted with its own color. Draw it at 4x the star's radius:
+ * the colored disc fills the inner quarter, the glow fades out to the edge.
+ */
 export function getSprite(hex: string) {
   let c = spriteCache.get(hex);
   if (c) return c;
   c = document.createElement("canvas");
-  c.width = c.height = 128;
+  c.width = c.height = 160;
   const g = c.getContext("2d")!;
   const [r, gg, b] = hexToRgb(hex);
-  const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-  grd.addColorStop(0, "rgba(255,252,246,1)");
-  grd.addColorStop(0.08, "rgba(255,250,240,0.95)");
-  grd.addColorStop(0.16, `rgba(${r},${gg},${b},0.9)`);
-  grd.addColorStop(0.26, `rgba(${r},${gg},${b},0.35)`);
-  grd.addColorStop(0.5, `rgba(${r},${gg},${b},0.09)`);
+  const mix = (k: number) => [r, gg, b].map((v) => Math.round(v + (255 - v) * k)).join(",");
+  const grd = g.createRadialGradient(80, 80, 0, 80, 80, 80);
+  grd.addColorStop(0, `rgba(${mix(0.62)},1)`);
+  grd.addColorStop(0.1, `rgba(${mix(0.32)},1)`);
+  grd.addColorStop(0.2, `rgba(${mix(0.08)},0.96)`);
+  grd.addColorStop(0.26, `rgba(${r},${gg},${b},0.62)`);
+  grd.addColorStop(0.36, `rgba(${r},${gg},${b},0.32)`);
+  grd.addColorStop(0.55, `rgba(${r},${gg},${b},0.14)`);
+  grd.addColorStop(0.78, `rgba(${r},${gg},${b},0.05)`);
   grd.addColorStop(1, `rgba(${r},${gg},${b},0)`);
   g.fillStyle = grd;
-  g.fillRect(0, 0, 128, 128);
+  g.fillRect(0, 0, 160, 160);
   spriteCache.set(hex, c);
   return c;
 }

@@ -23,11 +23,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { DEFAULT_STAR, PALETTE, formatStamp } from "@/lib/sky";
+import { TaskComposer, TaskList } from "@/components/task-list";
 import { FormattedNote, applyFormat, formatKeyDown, wordCount, type FormatKind } from "@/lib/note-format";
 import { scheduleDelete, usePendingDeletes } from "@/lib/pending-deletes";
 import type { SkyActions } from "@/hooks/use-sky-actions";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useSheetDrag } from "@/components/bottom-sheet";
 
 function autosize(el: HTMLTextAreaElement | null) {
   if (!el) return;
@@ -184,9 +186,45 @@ type Props = {
   narrow: boolean;
   /** A note to scroll to and briefly highlight (e.g. from "On this day"). */
   focusNoteId?: number | null;
+  tab: CardTab;
+  onTabChange: (tab: CardTab) => void;
+  /** Opens another star (from the constellation chips). */
+  onSwitchStar: (id: number) => void;
 };
 
-export default function JournalCard({ star, sky, roots, actions, onClose, onStartConnect, sheetHeight, onSheetHeightChange, narrow, focusNoteId }: Props) {
+export type CardTab = "notes" | "tasks";
+
+/** Chips for the stars in this star's constellation, current one highlighted. */
+function StarSwitcher({ members, currentId, colorOf, onPick }: { members: Star[]; currentId: number; colorOf: (s: Star) => string; onPick: (id: number) => void }) {
+  const row = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = row.current?.querySelector<HTMLElement>(`[data-chip-id="${currentId}"]`);
+    el?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  }, [currentId]);
+  return (
+    <div ref={row} className="no-scrollbar flex gap-1.5 overflow-x-auto px-5 pt-1 md:px-6" data-testid="star-switcher">
+      {members.map((m) => {
+        const c = colorOf(m);
+        const current = m.id === currentId;
+        return (
+          <button
+            key={m.id}
+            data-chip-id={m.id}
+            onClick={() => !current && onPick(m.id)}
+            aria-current={current ? "true" : undefined}
+            className={`flex h-8 max-w-[10rem] shrink-0 items-center gap-1.5 rounded-full border px-3 text-[12px] transition-colors duration-300 max-md:h-11 max-md:max-w-[9rem] ${current ? "border-white/[0.14] bg-white/[0.09] text-foreground" : "border-white/[0.06] text-muted-foreground hover:bg-white/[0.05] hover:text-foreground"}`}
+            data-testid={`chip-star-${m.id}`}
+          >
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: c, boxShadow: current ? `0 0 8px ${c}` : undefined }} />
+            <span className="truncate">{m.title}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export default function JournalCard({ star, sky, roots, actions, onClose, onStartConnect, sheetHeight, onSheetHeightChange, narrow, focusNoteId, tab, onTabChange, onSwitchStar }: Props) {
   const qc = useQueryClient();
   const notesKey = getListStarNotesQueryKey(star.id);
   const notesQ = useListStarNotes(star.id, { query: { enabled: !!star.id, queryKey: notesKey } });
@@ -226,23 +264,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
     return undefined;
   }, [star.id, notesQ.data, focusNoteId]);
 
-  const sheetStartY = useRef<number | null>(null);
-  const onSheetHandleDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.pointerType === "mouse") return;
-    sheetStartY.current = e.clientY;
-    e.currentTarget.setPointerCapture(e.pointerId);
-  };
-  const onSheetHandleUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (sheetStartY.current == null) return;
-    const dy = e.clientY - sheetStartY.current;
-    sheetStartY.current = null;
-    if (dy > 60) {
-      if (sheetHeight === "full" && dy < 180) onSheetHeightChange("half");
-      else onClose();
-    } else if (dy < -60) {
-      onSheetHeightChange("full");
-    }
-  };
+  const { onSheetHandleDown, onSheetHandleMove, onSheetHandleUp, onSheetHandleCancel } = useSheetDrag(sheetHeight, onSheetHeightChange, onClose);
   const [connectPickerOpen, setConnectPickerOpen] = useState(false);
   const [connectQuery, setConnectQuery] = useState("");
   const connectableStars = useMemo(() => {
@@ -298,6 +320,11 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
   // constellation
   const root = roots.get(star.id);
   const members = useMemo(() => sky.stars.filter((s) => roots.get(s.id) === root), [sky.stars, roots, root]);
+  const colorOfStar = (s: Star) => (s.labelId == null ? DEFAULT_STAR : sky.labels.find((l) => l.id === s.labelId)?.color ?? DEFAULT_STAR);
+  const starTasks = useMemo(() => sky.tasks.filter((t) => t.starId === star.id), [sky.tasks, star.id]);
+  const doneCount = starTasks.filter((t) => t.done).length;
+  const [openTaskId, setOpenTaskId] = useState<number | null>(null);
+  useEffect(() => setOpenTaskId(null), [star.id]);
   const constellation = sky.constellations.find((c) => roots.get(c.anchorStarId) === root) ?? null;
   const [cName, setCName] = useState(constellation?.name ?? "");
   useEffect(() => setCName(constellation?.name ?? ""), [constellation?.id, constellation?.name]);
@@ -326,19 +353,23 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
   const dot = label?.color ?? DEFAULT_STAR;
 
   return (
-    <div className="sky-glass flex h-full max-h-full flex-col overflow-hidden rounded-[22px]" data-testid="card-journal">
-      <div
-        className="relative flex items-start gap-3 px-5 pb-3 pt-5 md:px-6 md:pt-6"
-      >
+    <div className="sky-glass relative flex h-full max-h-full flex-col overflow-hidden rounded-[22px]" data-testid="card-journal">
+      {narrow && (
         <div
-          className="absolute left-1/2 top-2.5 z-10 hidden h-4 w-12 -translate-x-1/2 touch-none items-center justify-center max-md:flex"
+          className="flex h-6 w-full shrink-0 touch-none items-center justify-center"
           onPointerDown={onSheetHandleDown}
+          onPointerMove={onSheetHandleMove}
           onPointerUp={onSheetHandleUp}
-          onPointerCancel={() => { sheetStartY.current = null; }}
+          onPointerCancel={onSheetHandleCancel}
           data-testid="sheet-drag-handle"
         >
           <span className="h-1 w-10 rounded-full bg-white/20" />
         </div>
+      )}
+      {members.length > 1 && <div className="pt-2 md:pt-5"><StarSwitcher members={members} currentId={star.id} colorOf={colorOfStar} onPick={onSwitchStar} /></div>}
+      <div
+        className={`relative flex items-center gap-0.5 px-5 pb-3 md:items-start md:gap-3 md:px-6 ${members.length > 1 ? "pt-3" : narrow ? "pt-1" : "pt-6"}`}
+      >
         <span className="mt-[11px] h-2.5 w-2.5 shrink-0 transition-colors duration-700" style={{ background: dot, boxShadow: `0 0 14px ${dot}` }} />
         <input
           value={title}
@@ -356,16 +387,17 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
         />
         <button
           onClick={() => onStartConnect(star.id)}
-          className="mt-1 hidden h-8 shrink-0 items-center gap-1.5 rounded-full border border-white/10 px-2.5 text-[11.5px] text-muted-foreground hover:bg-white/[0.06] hover:text-foreground max-md:flex"
+          className="-my-2 hidden h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.06] hover:text-foreground max-md:flex"
           aria-label="Connect this star"
+          title="Connect"
           data-testid="button-connect-from-card"
         >
-          <Link2 className="h-3.5 w-3.5" /><span>Connect</span>
+          <Link2 className="h-4 w-4" />
         </button>
         <Popover open={connectPickerOpen} onOpenChange={setConnectPickerOpen}>
           <PopoverTrigger asChild>
             <button
-              className="mt-1 hidden h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 text-muted-foreground hover:bg-white/[0.06] hover:text-foreground max-md:flex"
+              className="-my-2 hidden h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.06] hover:text-foreground max-md:flex"
               aria-label="Connect to another star"
               data-testid="button-connect-to"
             >
@@ -403,7 +435,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
         </Popover>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="mt-1 hidden rounded-full p-1.5 text-muted-foreground/75 hover:bg-white/5 hover:text-foreground max-md:block" aria-label="More star actions" data-testid="button-star-menu">
+            <button className="-my-2 hidden h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.06] hover:text-foreground max-md:flex" aria-label="More star actions" data-testid="button-star-menu">
               <MoreHorizontal className="h-4 w-4" />
             </button>
           </DropdownMenuTrigger>
@@ -417,7 +449,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <button onClick={onClose} className="mt-1 rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground" aria-label="Close" data-testid="button-close-card">
+        <button onClick={onClose} className="mt-1 rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground max-md:-my-2 max-md:mt-0 max-md:flex max-md:h-11 max-md:w-11 max-md:items-center max-md:justify-center max-md:p-0" aria-label="Close" data-testid="button-close-card">
           <X className="h-4 w-4" />
         </button>
       </div>
@@ -588,8 +620,36 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
         )}
       </div>
 
-      <div className="mx-6 h-px bg-white/[0.06]" />
+      {/* tabs */}
+      <div className="flex items-end gap-5 border-b border-white/[0.06] px-6" role="tablist">
+        {(["notes", "tasks"] as const).map((t) => (
+          <button
+            key={t}
+            role="tab"
+            aria-selected={tab === t}
+            onClick={() => onTabChange(t)}
+            className={`relative -mb-px flex min-h-10 items-center gap-1.5 border-b-[1.5px] pb-2 pt-1 text-[13px] transition-colors duration-300 max-md:min-h-11 ${tab === t ? "border-foreground/70 text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+            data-testid={`tab-${t}`}
+          >
+            {t === "notes" ? "Notes" : "Tasks"}
+            {t === "tasks" && starTasks.length > 0 && (
+              <span className="tabular-nums text-muted-foreground/80" data-testid="text-task-count">{doneCount}/{starTasks.length}</span>
+            )}
+          </button>
+        ))}
+      </div>
 
+      {tab === "tasks" ? (
+        <>
+          <div className="thin-scroll min-h-0 flex-1 overflow-y-auto px-5 py-4 md:px-6">
+            <TaskList star={star} tasks={starTasks} color={dot} actions={actions} narrow={narrow} openTaskId={openTaskId} onOpenTask={(id) => { setOpenTaskId(id); if (narrow && id != null) onSheetHeightChange("full"); }} />
+          </div>
+          <div className="px-4 pb-3">
+            <TaskComposer starId={star.id} actions={actions} />
+          </div>
+        </>
+      ) : (
+      <>
       {/* notes */}
       <div className="thin-scroll min-h-0 flex-1 overflow-y-auto px-6 py-5">
         {notesQ.isLoading ? (
@@ -655,9 +715,11 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
           )}
         </div>
       </div>
+      </>
+      )}
 
       {/* footer: constellation + delete */}
-      <div className="flex flex-wrap items-center gap-3 border-t border-white/[0.06] px-6 py-3.5 text-[12px]">
+      <div className={`${narrow && tab === "tasks" ? "hidden" : "flex"} flex-wrap items-center gap-3 border-t border-white/[0.06] px-6 py-3.5 text-[12px]`}>
         {members.length > 1 ? (
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <span className="shrink-0 text-muted-foreground/70">{members.length} stars ·</span>

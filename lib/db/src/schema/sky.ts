@@ -1,4 +1,6 @@
 import {
+  boolean,
+  date,
   doublePrecision,
   index,
   integer,
@@ -41,6 +43,8 @@ export const starsTable = pgTable(
     labelId: integer("label_id").references(() => labelsTable.id, {
       onDelete: "set null",
     }),
+    /** "auto" sorts tasks by due date and priority; "manual" keeps the user's order. */
+    taskOrder: varchar("task_order", { length: 8 }).notNull().default("auto"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -110,6 +114,35 @@ export const constellationsTable = pgTable(
   (t) => [index("constellations_user_idx").on(t.userId)],
 );
 
+export const tasksTable = pgTable(
+  "tasks",
+  {
+    id: serial("id").primaryKey(),
+    userId: userRef(),
+    starId: integer("star_id")
+      .notNull()
+      .references(() => starsTable.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    /** Calendar day (YYYY-MM-DD) in the user's own time zone. */
+    dueDate: date("due_date", { mode: "string" }),
+    priority: varchar("priority", { length: 8 }).notNull().default("normal"),
+    repeat: varchar("repeat", { length: 8 }),
+    done: boolean("done").notNull().default(false),
+    doneAt: timestamp("done_at", { withTimezone: true }),
+    /** Set once a repeating task has created its next instance, so it never does so twice. */
+    spawnedNext: boolean("spawned_next").notNull().default(false),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("tasks_user_idx").on(t.userId),
+    index("tasks_star_idx").on(t.starId),
+  ],
+);
+
+export type TaskRow = typeof tasksTable.$inferSelect;
 export type LabelRow = typeof labelsTable.$inferSelect;
 export type StarRow = typeof starsTable.$inferSelect;
 export type NoteRow = typeof notesTable.$inferSelect;

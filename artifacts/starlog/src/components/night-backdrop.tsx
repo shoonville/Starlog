@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { getSprite, Starfield } from "@/lib/starfield";
+import { hexToRgb } from "@/lib/sky";
 
 /** Decorative sky for landing / loading / error screens. Optionally draws a slow sample constellation. */
 export function NightBackdrop({ constellation = false }: { constellation?: boolean }) {
@@ -11,12 +12,12 @@ export function NightBackdrop({ constellation = false }: { constellation?: boole
     let raf = 0;
     const start = performance.now();
     const pts = [
-      { x: 0.62, y: 0.3, r: 5, c: "#F4E4C4" },
-      { x: 0.71, y: 0.22, r: 3.5, c: "#B9A6F0" },
-      { x: 0.8, y: 0.34, r: 4.2, c: "#EBA9C0" },
-      { x: 0.76, y: 0.48, r: 3, c: "#9DB8E8" },
-      { x: 0.88, y: 0.44, r: 3.4, c: "#F4E4C4" },
-      { x: 0.68, y: 0.6, r: 2.6, c: "#A9CDB0" },
+      { x: 0.62, y: 0.3, r: 5, c: "#FFC23D" },
+      { x: 0.71, y: 0.22, r: 3.5, c: "#A06BFF" },
+      { x: 0.8, y: 0.34, r: 4.2, c: "#FF5C9E" },
+      { x: 0.76, y: 0.48, r: 3, c: "#4D8DFF" },
+      { x: 0.88, y: 0.44, r: 3.4, c: "#FFE2AE" },
+      { x: 0.68, y: 0.6, r: 2.6, c: "#34D399" },
     ];
     const edges = [[0, 1], [1, 2], [2, 3], [2, 4], [3, 5]];
     const loop = (now: number) => {
@@ -36,7 +37,11 @@ export function NightBackdrop({ constellation = false }: { constellation?: boole
         const prog = Math.max(0, Math.min(1, (el - 1.2 - i * 0.7) / 1.6));
         if (prog <= 0) return;
         const e = 1 - Math.pow(1 - prog, 3);
-        ctx.strokeStyle = "rgba(214,200,250,0.22)";
+        const [r1, g1, b1] = hexToRgb(P[a].c), [r2, g2, b2] = hexToRgb(P[b].c);
+        const grad = ctx.createLinearGradient(P[a].x, P[a].y, P[b].x, P[b].y);
+        grad.addColorStop(0, `rgba(${r1},${g1},${b1},0.34)`);
+        grad.addColorStop(1, `rgba(${r2},${g2},${b2},0.34)`);
+        ctx.strokeStyle = grad;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(P[a].x, P[a].y);
@@ -47,7 +52,7 @@ export function NightBackdrop({ constellation = false }: { constellation?: boole
         const prog = Math.max(0, Math.min(1, (el - 0.3 - i * 0.35) / 1.4));
         if (prog <= 0) return;
         const e = 1 - Math.pow(1 - prog, 3);
-        const half = p.r * 5 * e * (0.95 + 0.05 * Math.sin(t * 0.8 + i));
+        const half = p.r * 4 * e * (0.95 + 0.05 * Math.sin(t * 0.8 + i));
         ctx.globalAlpha = e;
         ctx.drawImage(getSprite(p.c), p.x - half, p.y - half, half * 2, half * 2);
         ctx.globalAlpha = 1;

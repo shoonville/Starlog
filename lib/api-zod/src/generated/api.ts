@@ -145,6 +145,7 @@ export const GetSkyResponse = zod.object({
   "stars": zod.array(zod.object({
   "id": zod.number().int(),
   "title": zod.string(),
+  "taskOrder": zod.enum(['auto', 'manual']),
   "x": zod.number().describe('World-space x coordinate'),
   "y": zod.number().describe('World-space y coordinate'),
   "labelId": zod.number().int().nullable(),
@@ -162,6 +163,18 @@ export const GetSkyResponse = zod.object({
   "id": zod.number().int(),
   "name": zod.string(),
   "anchorStarId": zod.number().int().describe('A star in the group. The constellation is the connected component (via connections) containing this star; the client computes its members and places the name near their centroid.'),
+  "createdAt": zod.coerce.date()
+})),
+  "tasks": zod.array(zod.object({
+  "id": zod.number().int(),
+  "starId": zod.number().int(),
+  "title": zod.string(),
+  "dueDate": zod.string().nullable().describe('Calendar day, YYYY-MM-DD'),
+  "priority": zod.enum(['low', 'normal', 'high']),
+  "repeat": zod.union([zod.literal('daily'),zod.literal('weekly'),zod.literal('monthly'),zod.literal(null)]).nullable(),
+  "done": zod.boolean(),
+  "doneAt": zod.coerce.date().nullable(),
+  "position": zod.number().int(),
   "createdAt": zod.coerce.date()
 }))
 })
@@ -256,6 +269,7 @@ export const CreateStarBody = zod.object({
 export const CreateStarResponse = zod.object({
   "id": zod.number().int(),
   "title": zod.string(),
+  "taskOrder": zod.enum(['auto', 'manual']),
   "x": zod.number().describe('World-space x coordinate'),
   "y": zod.number().describe('World-space y coordinate'),
   "labelId": zod.number().int().nullable(),
@@ -286,6 +300,7 @@ export const UpdateStarBody = zod.object({
 export const UpdateStarResponse = zod.object({
   "id": zod.number().int(),
   "title": zod.string(),
+  "taskOrder": zod.enum(['auto', 'manual']),
   "x": zod.number().describe('World-space x coordinate'),
   "y": zod.number().describe('World-space y coordinate'),
   "labelId": zod.number().int().nullable(),
@@ -344,6 +359,113 @@ export const CreateNoteResponse = zod.object({
   "createdAt": zod.coerce.date(),
   "editedAt": zod.coerce.date().nullable().describe('Set when the note body was changed after creation')
 })
+
+
+/**
+ * @summary Add a task to a star
+ */
+export const CreateTaskParams = zod.object({
+  "starId": zod.coerce.number().int()
+})
+
+export const createTaskBodyTitleMax = 300;
+
+export const createTaskBodyDueDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
+
+export const CreateTaskBody = zod.object({
+  "title": zod.string().min(1).max(createTaskBodyTitleMax),
+  "dueDate": zod.string().regex(createTaskBodyDueDateRegExp).nullish(),
+  "priority": zod.enum(['low', 'normal', 'high']).optional(),
+  "repeat": zod.union([zod.literal('daily'),zod.literal('weekly'),zod.literal('monthly'),zod.literal(null)]).nullish()
+})
+
+export const CreateTaskResponse = zod.object({
+  "id": zod.number().int(),
+  "starId": zod.number().int(),
+  "title": zod.string(),
+  "dueDate": zod.string().nullable().describe('Calendar day, YYYY-MM-DD'),
+  "priority": zod.enum(['low', 'normal', 'high']),
+  "repeat": zod.union([zod.literal('daily'),zod.literal('weekly'),zod.literal('monthly'),zod.literal(null)]).nullable(),
+  "done": zod.boolean(),
+  "doneAt": zod.coerce.date().nullable(),
+  "position": zod.number().int(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Keep a manual task order for a star, or go back to automatic sorting (order null)
+ */
+export const SetTaskOrderParams = zod.object({
+  "starId": zod.coerce.number().int()
+})
+
+export const SetTaskOrderBody = zod.object({
+  "order": zod.array(zod.number().int()).nullable()
+})
+
+export const SetTaskOrderResponse = zod.void()
+
+
+/**
+ * @summary Edit or check off a task. Checking off a repeating task creates the next one.
+ */
+export const UpdateTaskParams = zod.object({
+  "taskId": zod.coerce.number().int()
+})
+
+export const updateTaskBodyTitleMax = 300;
+
+export const updateTaskBodyDueDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+export const updateTaskBodyTodayRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
+
+export const UpdateTaskBody = zod.object({
+  "title": zod.string().min(1).max(updateTaskBodyTitleMax).optional(),
+  "dueDate": zod.string().regex(updateTaskBodyDueDateRegExp).nullish(),
+  "priority": zod.enum(['low', 'normal', 'high']).optional(),
+  "repeat": zod.union([zod.literal('daily'),zod.literal('weekly'),zod.literal('monthly'),zod.literal(null)]).nullish(),
+  "done": zod.boolean().optional(),
+  "today": zod.string().regex(updateTaskBodyTodayRegExp).optional().describe('The user\'s local date, used to schedule the next instance of a repeating task')
+})
+
+export const UpdateTaskResponse = zod.object({
+  "task": zod.object({
+  "id": zod.number().int(),
+  "starId": zod.number().int(),
+  "title": zod.string(),
+  "dueDate": zod.string().nullable().describe('Calendar day, YYYY-MM-DD'),
+  "priority": zod.enum(['low', 'normal', 'high']),
+  "repeat": zod.union([zod.literal('daily'),zod.literal('weekly'),zod.literal('monthly'),zod.literal(null)]).nullable(),
+  "done": zod.boolean(),
+  "doneAt": zod.coerce.date().nullable(),
+  "position": zod.number().int(),
+  "createdAt": zod.coerce.date()
+}),
+  "next": zod.union([zod.object({
+  "id": zod.number().int(),
+  "starId": zod.number().int(),
+  "title": zod.string(),
+  "dueDate": zod.string().nullable().describe('Calendar day, YYYY-MM-DD'),
+  "priority": zod.enum(['low', 'normal', 'high']),
+  "repeat": zod.union([zod.literal('daily'),zod.literal('weekly'),zod.literal('monthly'),zod.literal(null)]).nullable(),
+  "done": zod.boolean(),
+  "doneAt": zod.coerce.date().nullable(),
+  "position": zod.number().int(),
+  "createdAt": zod.coerce.date()
+}),zod.null()])
+})
+
+
+/**
+ * @summary Delete a task
+ */
+export const DeleteTaskParams = zod.object({
+  "taskId": zod.coerce.number().int()
+})
+
+export const DeleteTaskResponse = zod.void()
 
 
 /**

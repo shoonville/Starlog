@@ -4,16 +4,17 @@ import {
   labelsTable,
   notesTable,
   starsTable,
+  tasksTable,
   type db as Db,
 } from "@workspace/db";
 
 type Tx = Parameters<Parameters<typeof Db.transaction>[0]>[0];
 
 const LABELS = [
-  { key: "work", name: "Work", color: "#8FB3E8" },
-  { key: "ideas", name: "Ideas", color: "#B9A6E8" },
-  { key: "personal", name: "Personal", color: "#E8A6BC" },
-  { key: "goals", name: "Goals", color: "#E8CF8F" },
+  { key: "work", name: "Work", color: "#4D8DFF" },
+  { key: "ideas", name: "Ideas", color: "#A06BFF" },
+  { key: "personal", name: "Personal", color: "#FF5C9E" },
+  { key: "goals", name: "Goals", color: "#FFC23D" },
 ] as const;
 
 type LabelKey = (typeof LABELS)[number]["key"];
@@ -242,6 +243,34 @@ const CONSTELLATIONS: Array<[string, string]> = [
   ["Learning Japanese", "hiragana"],
 ];
 
+interface DemoTask {
+  star: string;
+  title: string;
+  /** Days from today (in the viewer's zone); null for no date. */
+  due: number | null;
+  priority?: "low" | "normal" | "high";
+  repeat?: "daily" | "weekly" | "monthly";
+  /** Completed this many days ago. */
+  doneDaysAgo?: number;
+}
+
+// Tasks live on only a few stars: one with an overdue task, one repeating,
+// one where everything is already done.
+const TASKS: DemoTask[] = [
+  { star: "offsite", title: "Confirm catering for both days", due: -2, priority: "high" },
+  { star: "offsite", title: "Plan a rainy-day activity", due: 3 },
+  { star: "offsite", title: "Send the agenda to the team", due: 6 },
+  { star: "offsite", title: "Pack the board games", due: null, priority: "low" },
+  { star: "practice", title: "15 minutes of vocabulary", due: 0, repeat: "daily" },
+  { star: "practice", title: "Review the week's flashcards", due: 4, repeat: "weekly" },
+  { star: "practice", title: "Practice ordering food out loud", due: -1, doneDaysAgo: 1 },
+  { star: "tomatoes", title: "Buy bamboo stakes", due: -9, doneDaysAgo: 10 },
+  { star: "tomatoes", title: "Plant the seedlings", due: -6, doneDaysAgo: 6 },
+  { star: "tomatoes", title: "Mulch around the stems", due: -3, doneDaysAgo: 3 },
+  { star: "kyoto", title: "Renew passport", due: 12, priority: "high" },
+  { star: "kyoto", title: "Look for a ryokan near the river", due: null },
+];
+
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
@@ -269,6 +298,13 @@ function zoneParts(ms: number, tz: string) {
   }).formatToParts(new Date(ms));
   const get = (t: string) => Number(parts.find((p) => p.type === t)!.value);
   return { y: get("year"), m: get("month"), d: get("day"), h: get("hour"), min: get("minute") };
+}
+
+/** YYYY-MM-DD for today + offset days in the zone. */
+function localDay(now: number, tzIn: string | undefined, offsetDays: number) {
+  const today = zoneParts(now, validZone(tzIn));
+  const d = new Date(Date.UTC(today.y, today.m - 1, today.d + offsetDays));
+  return d.toISOString().slice(0, 10);
 }
 
 /** Local noon on the same day-of-month last month, or null if that day doesn't exist. */
@@ -361,5 +397,24 @@ export async function seedDemoSky(tx: Tx, userId: string, tz?: string) {
       name,
       anchorStarId: starIds.get(anchor)!,
     })),
+  );
+
+  const positions = new Map<string, number>();
+  await tx.insert(tasksTable).values(
+    TASKS.map((t) => {
+      const position = positions.get(t.star) ?? 0;
+      positions.set(t.star, position + 1);
+      return {
+        userId,
+        starId: starIds.get(t.star)!,
+        title: t.title,
+        dueDate: t.due == null ? null : localDay(now, tz, t.due),
+        priority: t.priority ?? "normal",
+        repeat: t.repeat ?? null,
+        done: t.doneDaysAgo != null,
+        doneAt: t.doneDaysAgo != null ? new Date(now - t.doneDaysAgo * DAY) : null,
+        position,
+      };
+    }),
   );
 }

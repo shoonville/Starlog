@@ -18,6 +18,8 @@ tags:
     description: Stars (topics/thoughts)
   - name: notes
     description: Journal notes inside a star
+  - name: tasks
+    description: To-dos inside a star
   - name: labels
     description: Color labels
   - name: connections
@@ -394,6 +396,81 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Note"
+  /stars/{starId}/tasks:
+    parameters:
+      - name: starId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: createTask
+      tags: [tasks]
+      summary: Add a task to a star
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+  /stars/{starId}/task-order:
+    parameters:
+      - name: starId
+        in: path
+        required: true
+        schema:
+          type: integer
+    put:
+      operationId: setTaskOrder
+      tags: [tasks]
+      summary: Keep a manual task order for a star, or go back to automatic sorting (order null)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskOrderInput"
+      responses:
+        "204":
+          description: Saved
+  /tasks/{taskId}:
+    parameters:
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: integer
+    patch:
+      operationId: updateTask
+      tags: [tasks]
+      summary: Edit or check off a task. Checking off a repeating task creates the next one.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskUpdateResult"
+    delete:
+      operationId: deleteTask
+      tags: [tasks]
+      summary: Delete a task
+      responses:
+        "204":
+          description: Deleted
   /notes/{noteId}:
     parameters:
       - name: noteId
@@ -709,7 +786,7 @@ components:
 
     Sky:
       type: object
-      required: [isDemo, labels, stars, connections, constellations]
+      required: [isDemo, labels, stars, connections, constellations, tasks]
       properties:
         isDemo:
           type: boolean
@@ -730,6 +807,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Constellation"
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Task"
 
     SkyStats:
       type: object
@@ -790,10 +871,13 @@ components:
 
     Star:
       type: object
-      required: [id, title, x, y, labelId, noteCount, createdAt, updatedAt]
+      required: [id, title, x, y, labelId, noteCount, taskOrder, createdAt, updatedAt]
       properties:
         id: { type: integer }
         title: { type: string }
+        taskOrder:
+          type: string
+          enum: [auto, manual]
         x:
           type: number
           description: World-space x coordinate
@@ -848,6 +932,86 @@ components:
           type: [string, "null"]
           format: date-time
           description: Set when the note body was changed after creation
+    Task:
+      type: object
+      required: [id, starId, title, dueDate, priority, repeat, done, doneAt, position, createdAt]
+      properties:
+        id: { type: integer }
+        starId: { type: integer }
+        title: { type: string }
+        dueDate:
+          type: [string, "null"]
+          description: Calendar day, YYYY-MM-DD
+        priority:
+          $ref: "#/components/schemas/TaskPriority"
+        repeat:
+          type: [string, "null"]
+          enum: [daily, weekly, monthly, null]
+        done: { type: boolean }
+        doneAt:
+          type: [string, "null"]
+          format: date-time
+        position: { type: integer }
+        createdAt:
+          type: string
+          format: date-time
+    TaskPriority:
+      type: string
+      enum: [low, normal, high]
+    TaskInput:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 300
+        dueDate:
+          type: [string, "null"]
+          pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+        priority:
+          $ref: "#/components/schemas/TaskPriority"
+        repeat:
+          type: [string, "null"]
+          enum: [daily, weekly, monthly, null]
+    TaskUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 300
+        dueDate:
+          type: [string, "null"]
+          pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+        priority:
+          $ref: "#/components/schemas/TaskPriority"
+        repeat:
+          type: [string, "null"]
+          enum: [daily, weekly, monthly, null]
+        done: { type: boolean }
+        today:
+          type: string
+          pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+          description: The user's local date, used to schedule the next instance of a repeating task
+    TaskUpdateResult:
+      type: object
+      required: [task, next]
+      properties:
+        task:
+          $ref: "#/components/schemas/Task"
+        next:
+          oneOf:
+            - $ref: "#/components/schemas/Task"
+            - type: "null"
+    TaskOrderInput:
+      type: object
+      required: [order]
+      properties:
+        order:
+          type: [array, "null"]
+          items: { type: integer }
+
     NoteInput:
       type: object
       required: [body]

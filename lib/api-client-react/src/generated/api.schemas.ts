@@ -70,9 +70,18 @@ export interface Label {
   createdAt: string;
 }
 
+export type StarTaskOrder = typeof StarTaskOrder[keyof typeof StarTaskOrder];
+
+
+export const StarTaskOrder = {
+  auto: 'auto',
+  manual: 'manual',
+} as const;
+
 export interface Star {
   id: number;
   title: string;
+  taskOrder: StarTaskOrder;
   /** World-space x coordinate */
   x: number;
   /** World-space y coordinate */
@@ -100,6 +109,46 @@ export interface Constellation {
   createdAt: string;
 }
 
+export type TaskPriority = typeof TaskPriority[keyof typeof TaskPriority];
+
+
+export const TaskPriority = {
+  low: 'low',
+  normal: 'normal',
+  high: 'high',
+} as const;
+
+/**
+ * @nullable
+ */
+export type TaskRepeat = typeof TaskRepeat[keyof typeof TaskRepeat] | null;
+
+
+export const TaskRepeat = {
+  daily: 'daily',
+  weekly: 'weekly',
+  monthly: 'monthly',
+} as const;
+
+export interface Task {
+  id: number;
+  starId: number;
+  title: string;
+  /**
+     * Calendar day, YYYY-MM-DD
+     * @nullable
+     */
+  dueDate: string | null;
+  priority: TaskPriority;
+  /** @nullable */
+  repeat: TaskRepeat;
+  done: boolean;
+  /** @nullable */
+  doneAt: string | null;
+  position: number;
+  createdAt: string;
+}
+
 export interface Sky {
   /** True when the current session is a guest demo sky (not saved to an account) */
   isDemo: boolean;
@@ -107,6 +156,7 @@ export interface Sky {
   stars: Star[];
   connections: Connection[];
   constellations: Constellation[];
+  tasks: Task[];
 }
 
 export interface SkyStats {
@@ -190,6 +240,78 @@ export interface Note {
      * @nullable
      */
   editedAt: string | null;
+}
+
+/**
+ * @nullable
+ */
+export type TaskInputRepeat = typeof TaskInputRepeat[keyof typeof TaskInputRepeat] | null;
+
+
+export const TaskInputRepeat = {
+  daily: 'daily',
+  weekly: 'weekly',
+  monthly: 'monthly',
+} as const;
+
+export interface TaskInput {
+  /**
+     * @minLength 1
+     * @maxLength 300
+     */
+  title: string;
+  /**
+     * @nullable
+     * @pattern ^\d{4}-\d{2}-\d{2}$
+     */
+  dueDate?: string | null;
+  priority?: TaskPriority;
+  /** @nullable */
+  repeat?: TaskInputRepeat;
+}
+
+/**
+ * @nullable
+ */
+export type TaskUpdateRepeat = typeof TaskUpdateRepeat[keyof typeof TaskUpdateRepeat] | null;
+
+
+export const TaskUpdateRepeat = {
+  daily: 'daily',
+  weekly: 'weekly',
+  monthly: 'monthly',
+} as const;
+
+export interface TaskUpdate {
+  /**
+     * @minLength 1
+     * @maxLength 300
+     */
+  title?: string;
+  /**
+     * @nullable
+     * @pattern ^\d{4}-\d{2}-\d{2}$
+     */
+  dueDate?: string | null;
+  priority?: TaskPriority;
+  /** @nullable */
+  repeat?: TaskUpdateRepeat;
+  done?: boolean;
+  /**
+     * The user's local date, used to schedule the next instance of a repeating task
+     * @pattern ^\d{4}-\d{2}-\d{2}$
+     */
+  today?: string;
+}
+
+export interface TaskUpdateResult {
+  task: Task;
+  next: Task | null;
+}
+
+export interface TaskOrderInput {
+  /** @nullable */
+  order: number[] | null;
 }
 
 export interface NoteInput {

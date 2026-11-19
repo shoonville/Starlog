@@ -1,19 +1,26 @@
 import { format } from "date-fns";
 import type { Connection, Constellation, Star } from "@workspace/api-client-react";
 
-export const DEFAULT_STAR = "#F4E4C4";
+export const DEFAULT_STAR = "#FFE2AE";
 
 export const PALETTE: { name: string; hex: string }[] = [
-  { name: "Moonwater", hex: "#9DB8E8" },
-  { name: "Lavender", hex: "#B9A6F0" },
-  { name: "Rosewood", hex: "#EBA9C0" },
-  { name: "Honey", hex: "#EBC98A" },
-  { name: "Sage", hex: "#A9CDB0" },
-  { name: "Apricot", hex: "#F0B49A" },
-  { name: "Tidepool", hex: "#8FCFCB" },
-  { name: "Lilac", hex: "#D7B4E8" },
-  { name: "Pearl", hex: "#E4DFF0" },
+  { name: "Blue", hex: "#4D8DFF" },
+  { name: "Violet", hex: "#A06BFF" },
+  { name: "Pink", hex: "#FF5C9E" },
+  { name: "Gold", hex: "#FFC23D" },
+  { name: "Green", hex: "#34D399" },
+  { name: "Orange", hex: "#FF8A4C" },
+  { name: "Teal", hex: "#22D3D3" },
+  { name: "Magenta", hex: "#E36BFF" },
+  { name: "Moonlight", hex: "#D6DEFF" },
 ];
+
+/** Mix a hex color toward white; returns [r,g,b]. */
+export function lighten(hex: string, amount: number): [number, number, number] {
+  const [r, g, b] = hexToRgb(hex);
+  const up = (c: number) => Math.round(c + (255 - c) * amount);
+  return [up(r), up(g), up(b)];
+}
 
 export const MIN_ZOOM = 0.22;
 export const MAX_ZOOM = 3.6;

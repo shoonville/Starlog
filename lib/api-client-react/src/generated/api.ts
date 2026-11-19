@@ -53,7 +53,12 @@ import type {
   StarInput,
   StarUpdate,
   StressInput,
-  StressResult
+  StressResult,
+  Task,
+  TaskInput,
+  TaskOrderInput,
+  TaskUpdate,
+  TaskUpdateResult
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -1714,6 +1719,347 @@ export const useCreateNote = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getCreateNoteMutationOptions(options));
+    }
+
+export const getCreateTaskUrl = (starId: number,) => {
+
+
+
+
+  return `/api/stars/${starId}/tasks`
+}
+
+/**
+ * @summary Add a task to a star
+ */
+export const createTask = async (starId: number,
+    taskInput: TaskInput, options?: Parameters<typeof customFetch>[1]): Promise<Task> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Task>(getCreateTaskUrl(starId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(taskInput)
+  }
+);}
+
+
+
+
+
+export const getCreateTaskMutationKey = () => ['createTask'] as const;
+
+export const getCreateTaskMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createTask>>, TError,CreateTaskMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createTask>>, TError,CreateTaskMutationVariables, TContext> => {
+
+const mutationKey = getCreateTaskMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createTask>>, CreateTaskMutationVariables> = (props) => {
+          const {starId,data} = props ?? {};
+
+          return  createTask(starId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateTaskMutationResult = NonNullable<Awaited<ReturnType<typeof createTask>>>
+    export type CreateTaskMutationBody = BodyType<TaskInput>
+    export type CreateTaskMutationError = ErrorType<unknown>
+    export type CreateTaskMutationVariables = {starId: number;data: BodyType<TaskInput>}
+
+    /**
+ * @summary Add a task to a star
+ */
+export const useCreateTask = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createTask>>, TError,CreateTaskMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createTask>>,
+        TError,
+        CreateTaskMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateTaskMutationOptions(options));
+    }
+
+export const getSetTaskOrderUrl = (starId: number,) => {
+
+
+
+
+  return `/api/stars/${starId}/task-order`
+}
+
+/**
+ * @summary Keep a manual task order for a star, or go back to automatic sorting (order null)
+ */
+export const setTaskOrder = async (starId: number,
+    taskOrderInput: TaskOrderInput, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<void>(getSetTaskOrderUrl(starId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(taskOrderInput)
+  }
+);}
+
+
+
+
+
+export const getSetTaskOrderMutationKey = () => ['setTaskOrder'] as const;
+
+export const getSetTaskOrderMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setTaskOrder>>, TError,SetTaskOrderMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setTaskOrder>>, TError,SetTaskOrderMutationVariables, TContext> => {
+
+const mutationKey = getSetTaskOrderMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setTaskOrder>>, SetTaskOrderMutationVariables> = (props) => {
+          const {starId,data} = props ?? {};
+
+          return  setTaskOrder(starId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetTaskOrderMutationResult = NonNullable<Awaited<ReturnType<typeof setTaskOrder>>>
+    export type SetTaskOrderMutationBody = BodyType<TaskOrderInput>
+    export type SetTaskOrderMutationError = ErrorType<unknown>
+    export type SetTaskOrderMutationVariables = {starId: number;data: BodyType<TaskOrderInput>}
+
+    /**
+ * @summary Keep a manual task order for a star, or go back to automatic sorting (order null)
+ */
+export const useSetTaskOrder = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setTaskOrder>>, TError,SetTaskOrderMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof setTaskOrder>>,
+        TError,
+        SetTaskOrderMutationVariables,
+        TContext
+      > => {
+      return useMutation(getSetTaskOrderMutationOptions(options));
+    }
+
+export const getUpdateTaskUrl = (taskId: number,) => {
+
+
+
+
+  return `/api/tasks/${taskId}`
+}
+
+/**
+ * @summary Edit or check off a task. Checking off a repeating task creates the next one.
+ */
+export const updateTask = async (taskId: number,
+    taskUpdate: TaskUpdate, options?: Parameters<typeof customFetch>[1]): Promise<TaskUpdateResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<TaskUpdateResult>(getUpdateTaskUrl(taskId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(taskUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateTaskMutationKey = () => ['updateTask'] as const;
+
+export const getUpdateTaskMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTask>>, TError,UpdateTaskMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateTask>>, TError,UpdateTaskMutationVariables, TContext> => {
+
+const mutationKey = getUpdateTaskMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateTask>>, UpdateTaskMutationVariables> = (props) => {
+          const {taskId,data} = props ?? {};
+
+          return  updateTask(taskId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateTaskMutationResult = NonNullable<Awaited<ReturnType<typeof updateTask>>>
+    export type UpdateTaskMutationBody = BodyType<TaskUpdate>
+    export type UpdateTaskMutationError = ErrorType<unknown>
+    export type UpdateTaskMutationVariables = {taskId: number;data: BodyType<TaskUpdate>}
+
+    /**
+ * @summary Edit or check off a task. Checking off a repeating task creates the next one.
+ */
+export const useUpdateTask = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTask>>, TError,UpdateTaskMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateTask>>,
+        TError,
+        UpdateTaskMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateTaskMutationOptions(options));
+    }
+
+export const getDeleteTaskUrl = (taskId: number,) => {
+
+
+
+
+  return `/api/tasks/${taskId}`
+}
+
+/**
+ * @summary Delete a task
+ */
+export const deleteTask = async (taskId: number, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDeleteTaskUrl(taskId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteTaskMutationKey = () => ['deleteTask'] as const;
+
+export const getDeleteTaskMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteTask>>, TError,DeleteTaskMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteTask>>, TError,DeleteTaskMutationVariables, TContext> => {
+
+const mutationKey = getDeleteTaskMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteTask>>, DeleteTaskMutationVariables> = (props) => {
+          const {taskId} = props ?? {};
+
+          return  deleteTask(taskId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteTaskMutationResult = NonNullable<Awaited<ReturnType<typeof deleteTask>>>
+
+    export type DeleteTaskMutationError = ErrorType<unknown>
+    export type DeleteTaskMutationVariables = {taskId: number}
+
+    /**
+ * @summary Delete a task
+ */
+export const useDeleteTask = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteTask>>, TError,DeleteTaskMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteTask>>,
+        TError,
+        DeleteTaskMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDeleteTaskMutationOptions(options));
     }
 
 export const getUpdateNoteUrl = (noteId: number,) => {

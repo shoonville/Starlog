@@ -5,10 +5,12 @@
  * Starlog API — a journal where thoughts live as stars in a personal constellation.
  * OpenAPI spec version: 0.1.0
  */
+import type { StarTaskOrder } from './starTaskOrder';
 
 export interface Star {
   id: number;
   title: string;
+  taskOrder: StarTaskOrder;
   /** World-space x coordinate */
   x: number;
   /** World-space y coordinate */

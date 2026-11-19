@@ -27,17 +27,19 @@ import {
   loadConstellations,
   loadLabels,
   loadStars,
+  loadTasks,
 } from "../lib/sky";
 
 const router: IRouter = Router();
 
 router.get("/sky", requireAuth, async (req, res) => {
   const userId = currentUserId(req);
-  const [labels, stars, connections, constellations] = await Promise.all([
+  const [labels, stars, connections, constellations, tasks] = await Promise.all([
     loadLabels(userId),
     loadStars(userId),
     loadConnections(userId),
     loadConstellations(userId),
+    loadTasks(userId),
   ]);
   res.json(
     GetSkyResponse.parse({
@@ -46,6 +48,7 @@ router.get("/sky", requireAuth, async (req, res) => {
       stars,
       connections,
       constellations,
+      tasks,
     }),
   );
 });
@@ -237,11 +240,12 @@ router.get("/on-this-day", requireAuth, async (req, res) => {
 });
 
 async function buildExport(userId: string) {
-  const [labels, stars, connections, constellations] = await Promise.all([
+  const [labels, stars, connections, constellations, tasks] = await Promise.all([
     loadLabels(userId),
     loadStars(userId),
     loadConnections(userId),
     loadConstellations(userId),
+    loadTasks(userId),
   ]);
   const starIds = stars.map((s) => s.id);
   const notes = starIds.length

@@ -20,7 +20,7 @@ A calm journal where each thought or topic is a glowing star in your own night-s
 ## Where things live
 
 - API contract: `lib/api-spec/openapi.yaml`
-- DB schema: `lib/db/src/schema/` (`auth.ts` users/sessions, `sky.ts` labels/stars/notes/connections/constellations)
+- DB schema: `lib/db/src/schema/` (`auth.ts` users/sessions, `sky.ts` labels/stars/notes/connections/constellations/tasks)
 - API routes: `artifacts/api-server/src/routes/`
 - Demo sky content: `artifacts/api-server/src/lib/demoSeed.ts`
 - Browser auth hook: `lib/replit-auth-web`
@@ -35,12 +35,16 @@ A calm journal where each thought or topic is a glowing star in your own night-s
 - Note bodies are stored as plain text with a tiny Markdown subset (`**bold**`, `*italic*`, `- ` bullets), rendered in the card and stripped for search/"On this day" snippets.
 - A star's `updatedAt` means "last written/edited": note add/edit/delete, rename and relabel bump it; moving a star does not. The recent panel sorts by it.
 - "On this day" matches notes by day-of-month in the viewer's time zone (`tz` query param). The demo seeds one note dated this day last month using the tz sent to `/demo/start`.
+- Tasks ship inside `GET /api/sky` (not a separate endpoint) so the client can patch them optimistically. "Today"/"overdue" are computed on the client from the viewer's local date; `PATCH /tasks/{id}` takes `today` so a checked-off repeating task spawns its next copy dated after today (once only, guarded by `spawnedNext`). A star's `task_order` is `auto` (overdue → date → priority) until the user drags a task, then `manual` until "Sort by date".
+- Quick add parsing lives in `artifacts/starlog/src/lib/tasks.ts`: a `#tag` matches a star title, then the newest star with that label, then a title prefix, else an "Inbox" star (created on demand). The Today panel's "How did today go?" note goes to a "Daily log" star.
+- Old pastel label colors are converted to the current palette when the API starts (`artifacts/api-server/src/lib/legacyColors.ts`).
 - Hidden developer panel: press Shift+D in the sky (or add `?dev` to the URL) to add/remove 300 random "Stress test N" stars and watch fps.
 
 ## Product
 
 - Pan/zoom night sky; create, drag, label and connect stars; journal card with timestamped, editable notes; color-label legend with highlight; named constellations; search; timeline replay; Markdown/JSON export; keyboard shortcuts (N, /, R, Ctrl+Z, Esc); recent-stars panel; "On this day"; undo for deletes; formatted notes with word count; private skies per account plus a demo sky.
-- On phones, the journal opens as a 90%-height sheet that snaps to half height or closes on a downward swipe. The card offers tap-to-connect and a searchable star picker; note formatting expands on focus, and the label is chosen from a single current-label chip. Desktop card layout and label controls remain unchanged.
+- Tasks on each star (Notes/Tasks tabs in the card, with switcher chips for the other stars in the constellation), a faint progress ring around stars with tasks, a Today panel (badge on the Today button counts due/overdue tasks) and a quick-add box (`A`, `T` shortcuts on desktop).
+- On phones the toolbar is Today, Search, + (quick add) and More; the journal card and Today panel open as bottom sheets at about two-thirds height that drag to full height or close on a downward swipe, and stay above the keyboard. Tap targets are at least 44px. The card offers tap-to-connect and a searchable star picker; note formatting expands on focus, and the label is chosen from a single current-label chip. Desktop card layout and label controls remain unchanged.
 - Visual theme: true-black (#000) sky for OLED, soft off-white text, lavender-purple accent for buttons/highlights, panels in #111114 with a thin border. The faint background starfield is pre-rendered once into offscreen tiles (two parallax layers moving slower than journal stars) plus a few slow twinklers drawn per frame; it is decoration only and never hit-tested.
 - Newly created connection strokes draw in softly. Canvas connection strokes and previews are clipped around constellation-name labels so the names remain unobstructed.
 
@@ -48,6 +52,7 @@ A calm journal where each thought or topic is a glowing star in your own night-s
 
 - `lib/api-client-react` needs `dom.iterable` in its tsconfig `lib` because the auth spec has header parameters (generated code calls `Headers.entries()`).
 - Don't use "Replit" in user-facing login text.
+- In the web app, don't write JSX with explicit type arguments (`<Comp<T> ...>`): the dev server's Babel metadata plugin fails to parse it even though `tsc` passes.
 
 ## Pointers
 

@@ -5,7 +5,9 @@ import {
   labelsTable,
   notesTable,
   starsTable,
+  tasksTable,
   type ConnectionRow,
+  type TaskRow,
   type ConstellationRow,
   type NoteRow,
 } from "@workspace/db";
@@ -35,6 +37,7 @@ export async function loadStars(userId: string, starId?: number) {
       x: starsTable.x,
       y: starsTable.y,
       labelId: starsTable.labelId,
+      taskOrder: starsTable.taskOrder,
       createdAt: starsTable.createdAt,
       updatedAt: starsTable.updatedAt,
       noteCount: sql<number>`coalesce(${noteCounts.n}, 0)`.mapWith(Number),
@@ -143,4 +146,28 @@ export async function labelBelongsTo(userId: string, labelId: number) {
     .from(labelsTable)
     .where(and(eq(labelsTable.id, labelId), eq(labelsTable.userId, userId)));
   return !!row;
+}
+
+export function serializeTask(t: TaskRow) {
+  return {
+    id: t.id,
+    starId: t.starId,
+    title: t.title,
+    dueDate: t.dueDate,
+    priority: t.priority,
+    repeat: t.repeat,
+    done: t.done,
+    doneAt: t.doneAt,
+    position: t.position,
+    createdAt: t.createdAt,
+  };
+}
+
+export async function loadTasks(userId: string) {
+  const rows = await db
+    .select()
+    .from(tasksTable)
+    .where(eq(tasksTable.userId, userId))
+    .orderBy(asc(tasksTable.position), asc(tasksTable.id));
+  return rows.map(serializeTask);
 }

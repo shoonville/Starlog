@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { useEndDemo, type Sky } from "@workspace/api-client-react";
+import { useEndDemo, type Sky, type Star, type Task } from "@workspace/api-client-react";
 import { useAuth } from "@workspace/replit-auth-web";
-import { ChartNoAxesGantt, Clock, Download, Link2, Menu, Plus, Search, ZoomIn, ZoomOut } from "lucide-react";
+import { CalendarCheck2, ChartNoAxesGantt, Clock, Download, Link2, ListPlus, Menu, MoreHorizontal, Plus, Search, ZoomIn, ZoomOut } from "lucide-react";
 import SkyCanvas, { type SkyCanvasHandle } from "@/components/sky-canvas";
-import JournalCard from "@/components/journal-card";
-import { Legend, SearchPanel, StatsReadout, Timeline } from "@/components/sky-overlays";
+import JournalCard, { type CardTab } from "@/components/journal-card";
+import { BottomSheet, useKeyboardInset, useSheetDrag, type SheetHeight } from "@/components/bottom-sheet";
+import { TodayPanel, dueTasks } from "@/components/today-panel";
+import { QuickAdd } from "@/components/quick-add";
+import { findStarByTitle, isOverdue, todayStr } from "@/lib/tasks";
+import { CompactLegend, Legend, SearchPanel, StatsReadout, Timeline } from "@/components/sky-overlays";
 import { Wordmark } from "@/components/wordmark";
 import { DevPanel, OnThisDay, RecentPanel, UndoBar } from "@/components/sky-extras";
 import { undoDelete, usePendingDeletes } from "@/lib/pending-deletes";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSkyActions } from "@/hooks/use-sky-actions";
@@ -29,17 +33,18 @@ function useNarrow() {
   return n;
 }
 
-function ToolButton({ label, kbd, active, onClick, children, testId }: { label: string; kbd?: string; active?: boolean; onClick: () => void; children: React.ReactNode; testId: string }) {
+function ToolButton({ label, kbd, active, onClick, children, testId, badge }: { label: string; kbd?: string; active?: boolean; onClick: () => void; children: React.ReactNode; testId: string; badge?: React.ReactNode }) {
   return (
     <TouchHint label={label}>
       <Tip label={label} kbd={kbd}>
           <button
             onClick={onClick}
             aria-label={label}
-            className={`flex h-9 w-9 items-center justify-center rounded-full transition-all duration-500 soft-ease ${active ? "bg-primary/90 text-primary-foreground" : "text-muted-foreground hover:bg-white/[0.07] hover:text-foreground"}`}
+            className={`relative flex h-9 w-9 items-center justify-center rounded-full transition-all duration-500 soft-ease max-md:h-11 max-md:w-11 ${active ? "bg-primary/90 text-primary-foreground" : "text-muted-foreground hover:bg-white/[0.07] hover:text-foreground"}`}
             data-testid={testId}
           >
             {children}
+            {badge}
           </button>
       </Tip>
     </TouchHint>
@@ -118,6 +123,7 @@ function useVisibleSky(sky: Sky): Sky {
       ...sky,
       stars,
       connections: sky.connections.filter((c) => !goneStars.has(c.fromStarId) && !goneStars.has(c.toStarId)),
+      tasks: sky.tasks.filter((t) => !goneStars.has(t.starId)),
       labels: sky.labels.map((l) => ({ ...l, starCount: stars.filter((s) => s.labelId === l.id).length })),
     };
   }, [sky, pending]);
@@ -145,7 +151,13 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
   const [recentOpen, setRecentOpen] = useState(false);
   const [focusNote, setFocusNote] = useState<{ starId: number; noteId: number } | null>(null);
   const [devOpen, setDevOpen] = useState(() => new URLSearchParams(window.location.search).has("dev"));
-  const [sheetHeight, setSheetHeight] = useState<"full" | "half">("full");
+  const [sheetHeight, setSheetHeight] = useState<SheetHeight>("half");
+  const [cardTab, setCardTab] = useState<CardTab>("notes");
+  const [todayOpen, setTodayOpen] = useState(false);
+  const [todayHeight, setTodayHeight] = useState<SheetHeight>("half");
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const keyboard = useKeyboardInset();
+  const todayDrag = useSheetDrag(todayHeight, setTodayHeight, () => setTodayOpen(false));
   const sleepTimer = useRef<number>(0);
   const legendRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -173,7 +185,22 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
   const roots = useMemo(() => componentRoots(sky.stars, sky.connections), [sky.stars, sky.connections]);
   const cviews = useMemo(() => constellationViews(sky.stars, sky.connections, sky.constellations, roots), [sky.stars, sky.connections, sky.constellations, roots]);
   const selected = sky.stars.find((s) => s.id === selectedId) ?? null;
-  useEffect(() => { setSheetHeight("full"); }, [selectedId]);
+  useEffect(() => { if (selectedId == null) setSheetHeight("half"); }, [selectedId]);
+
+  // Tasks: progress ring per star, and what's due for the Today button.
+  const today = todayStr();
+  const taskProgress = useMemo(() => {
+    const tally = new Map<number, [number, number]>();
+    for (const t of sky.tasks) {
+      const c = tally.get(t.starId) ?? [0, 0];
+      c[1]++;
+      if (t.done) c[0]++;
+      tally.set(t.starId, c);
+    }
+    return new Map([...tally].map(([id, [d, n]]) => [id, d / n]));
+  }, [sky.tasks]);
+  const due = useMemo(() => dueTasks(sky.tasks, today), [sky.tasks, today]);
+  const overdueCount = useMemo(() => due.filter((t) => isOverdue(t, today)).length, [due, today]);
 
   const highlight = useMemo(() => {
     if (searchOpen && searchIds) return searchIds;
@@ -188,21 +215,38 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
   }, []);
   useEffect(() => { wake(); return () => clearTimeout(sleepTimer.current); }, [wake]);
 
-  const focusStar = useCallback((id: number) => {
-    const st = sky.stars.find((s) => s.id === id);
+  const focusStar = useCallback((id: number, opts?: { tab?: CardTab; keepTab?: boolean; star?: Star }) => {
+    // A star created a moment ago may not be in this render's list yet, so it can be passed in.
+    const st = sky.stars.find((s) => s.id === id) ?? opts?.star;
     if (!st) return;
     setSelectedId(id);
+    if (opts?.tab) setCardTab(opts.tab);
+    else if (!opts?.keepTab) setCardTab("notes");
     setFocusNote((f) => (f && f.starId === id ? f : null));
     const n = window.matchMedia("(max-width: 767px)").matches;
-    canvas.current?.flyTo(st.x, st.y, n ? { dy: -window.innerHeight * 0.26 } : { dx: -210 });
+    canvas.current?.flyTo(st.x, st.y, n ? { dy: -window.innerHeight * 0.28 } : { dx: -210 });
   }, [sky.stars]);
+
+  /** A fresh star near the middle of the view, with a title (and label). */
+  const createStarNamed = useCallback((title: string, labelId: number | null, then: (s: Star) => void) => {
+    const c = canvas.current?.viewCenter() ?? { x: 0, y: 0 };
+    const ang = Math.random() * Math.PI * 2;
+    actions.createStar(Math.round(c.x + Math.cos(ang) * 120), Math.round(c.y + Math.sin(ang) * 90), then, { title, labelId });
+  }, [actions]);
+  /** Finds a star by title (e.g. Inbox, Daily log), creating it if needed. */
+  const ensureStar = useCallback((title: string, then: (s: Star) => void) => {
+    const found = findStarByTitle(sky.stars, title);
+    if (found) then(found);
+    else createStarNamed(title, null, then);
+  }, [sky.stars, createStarNamed]);
 
   const createAt = useCallback((x: number, y: number) => {
     if (timelineOpen) return;
     actions.createStar(x, y, (s) => {
       setSelectedId(s.id);
+      setCardTab("notes");
       const n = window.matchMedia("(max-width: 767px)").matches;
-      canvas.current?.flyTo(s.x, s.y, n ? { dy: -window.innerHeight * 0.26 } : { dx: -210 });
+      canvas.current?.flyTo(s.x, s.y, n ? { dy: -window.innerHeight * 0.28 } : { dx: -210 });
     });
   }, [actions, timelineOpen]);
 
@@ -227,13 +271,15 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
   };
 
   const exitModes = useCallback(() => {
+    if (quickAddOpen) { setQuickAddOpen(false); return; }
     if (searchOpen) { setSearchOpen(false); return; }
+    if (todayOpen) { setTodayOpen(false); return; }
     if (selectedId != null) { setSelectedId(null); return; }
     if (connectMode) { setConnectMode(false); setConnectFrom(null); return; }
     if (timelineOpen) { setTimelineOpen(false); setCutoff(null); return; }
     if (recentOpen) { setRecentOpen(false); return; }
     if (labelFilter != null) setLabelFilter(null);
-  }, [searchOpen, selectedId, connectMode, timelineOpen, recentOpen, labelFilter]);
+  }, [quickAddOpen, searchOpen, todayOpen, selectedId, connectMode, timelineOpen, recentOpen, labelFilter]);
 
   const keyRef = useRef({ exitModes, createAtCenter });
   keyRef.current = { exitModes, createAtCenter };
@@ -258,6 +304,8 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
       if (e.key === "r" || e.key === "R") { e.preventDefault(); setRecentOpen((v) => !v); }
       if (e.key === "n" || e.key === "N") { e.preventDefault(); keyRef.current.createAtCenter(); }
       if (e.key === "/") { e.preventDefault(); setSearchOpen(true); }
+      if (e.key === "t" || e.key === "T") { e.preventDefault(); setTodayOpen((v) => !v); }
+      if (e.key === "a" || e.key === "A") { e.preventDefault(); setQuickAddOpen(true); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -270,7 +318,25 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
   };
 
   const base = import.meta.env.BASE_URL;
-  const toolbarVisible = awake || connectMode || searchOpen;
+  const openToday = () => { setQuickAddOpen(false); if (!narrow) setRecentOpen(false); if (narrow) setSelectedId(null); setTodayOpen((v) => !v); };
+  const openQuickAdd = () => { setSearchOpen(false); if (narrow) setTodayOpen(false); setQuickAddOpen(true); };
+  const startConnect = () => { setConnectMode((v) => !v); setConnectFrom(null); setSelectedId(null); };
+  const openTimeline = () => { setSelectedId(null); setConnectMode(false); setTodayOpen(false); setTimelineOpen(true); };
+  const pickTodayTask = (t: Task) => {
+    setTodayOpen(false);
+    setFocusNote(null);
+    focusStar(t.starId, { tab: "tasks" });
+  };
+  const todayBadge = due.length > 0 ? (
+    <span
+      className={`pointer-events-none absolute -right-0.5 -top-0.5 flex h-[17px] min-w-[17px] items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums ${overdueCount > 0 ? "bg-[hsl(0_70%_72%)] text-black" : "bg-white/85 text-black"}`}
+      aria-label={`${due.length} due${overdueCount ? `, ${overdueCount} overdue` : ""}`}
+      data-testid="badge-today"
+    >
+      {due.length}
+    </span>
+  ) : null;
+  const toolbarVisible = awake || connectMode || searchOpen || todayOpen || quickAddOpen;
   const empty = sky.stars.length === 0;
 
   return (
@@ -286,9 +352,11 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
         connectMode={connectMode}
         connectFrom={connectFrom}
         cutoff={cutoff}
+        taskProgress={taskProgress}
         onStarTap={onStarTap}
         onBackground={() => {
           if (connectMode) { setConnectMode(false); setConnectFrom(null); }
+          else if (narrow && todayOpen) setTodayOpen(false);
           else setSelectedId(null);
         }}
         onCreateAt={createAt}
@@ -390,16 +458,20 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
       </AnimatePresence>
 
       {/* legend */}
-      {!narrow || !selected ? (
+      {!narrow || (!selected && !todayOpen && !quickAddOpen) ? (
         <div ref={legendRef} className={`absolute bottom-24 left-4 z-10 md:bottom-6 md:left-6 ${empty && sky.labels.length === 0 ? "hidden" : ""}`}>
-          <Legend labels={sky.labels} active={labelFilter} onToggle={(id) => setLabelFilter((c) => (c === id ? null : id))} actions={actions} dimmed={!toolbarVisible && labelFilter == null} />
+          {narrow ? (
+            <CompactLegend labels={sky.labels} active={labelFilter} onToggle={(id) => setLabelFilter((c) => (c === id ? null : id))} actions={actions} dimmed={!toolbarVisible && labelFilter == null} />
+          ) : (
+            <Legend labels={sky.labels} active={labelFilter} onToggle={(id) => setLabelFilter((c) => (c === id ? null : id))} actions={actions} dimmed={!toolbarVisible && labelFilter == null} />
+          )}
         </div>
       ) : null}
 
       {/* shortcuts hint */}
       {!narrow && (
         <div className={`pointer-events-none absolute bottom-6 right-7 text-[11px] tracking-wide text-muted-foreground/60 transition-opacity duration-1000 ${toolbarVisible && !selected ? "opacity-100" : "opacity-0"}`} data-testid="text-shortcuts">
-          N new star · / search · R recent · Esc close · drag a halo to connect
+          N new star · A add task · T today · / search · Esc close
         </div>
       )}
 
@@ -418,102 +490,244 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
           ) : (
             <motion.div key="tb" className="flex justify-center" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }} transition={{ duration: 0.9, ease: EASE }}>
               <div ref={toolbarRef} style={{ pointerEvents: "auto" }} onPointerEnter={wake} className={`sky-dock flex items-center gap-0.5 rounded-full p-1.5 ${toolbarVisible ? "" : "dock-asleep"}`} data-testid="toolbar">
-                <TouchHint label="New star">
-                  <button onClick={createAtCenter} disabled={actions.creating} className="mr-1 flex h-9 items-center gap-1.5 rounded-full bg-primary px-4 text-[13px] font-medium text-primary-foreground transition-all duration-500 soft-ease hover:brightness-105 disabled:opacity-60" data-testid="button-new-star">
-                    <Plus className="h-4 w-4" /> New Star
-                  </button>
-                </TouchHint>
-                <ToolButton label="Connect stars" active={connectMode} onClick={() => { setConnectMode((v) => !v); setConnectFrom(null); setSelectedId(null); }} testId="button-connect-mode"><Link2 className="h-4 w-4" /></ToolButton>
-                <ToolButton label="Recent stars" kbd="R" active={recentOpen} onClick={() => setRecentOpen((v) => !v)} testId="button-recent"><Clock className="h-4 w-4" /></ToolButton>
-                <ToolButton label="Search" kbd="/" active={searchOpen} onClick={() => setSearchOpen((v) => !v)} testId="button-search"><Search className="h-4 w-4" /></ToolButton>
-                <ToolButton label="Timeline" onClick={() => { setSelectedId(null); setConnectMode(false); setTimelineOpen(true); }} testId="button-timeline"><ChartNoAxesGantt className="h-4 w-4" /></ToolButton>
-                {!narrow && <ToolButton label="Zoom out" onClick={() => canvas.current?.zoomBy(0.75)} testId="button-zoom-out"><ZoomOut className="h-4 w-4" /></ToolButton>}
-                {!narrow && <ToolButton label="Zoom in" onClick={() => canvas.current?.zoomBy(1.33)} testId="button-zoom-in"><ZoomIn className="h-4 w-4" /></ToolButton>}
-                <TouchHint label="Export journal">
-                <DropdownMenu>
-                  <Tip label="Export journal">
-                  <DropdownMenuTrigger asChild>
-                    <button aria-label="Export journal" className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.07] hover:text-foreground" data-testid="button-export">
-                      <Download className="h-4 w-4" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  </Tip>
-                  <DropdownMenuContent side="top" align="center" className="sky-glass mb-2 min-w-44 rounded-xl border-0 p-1.5">
-                    <div className="px-2 pb-1.5 pt-1 text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/70">Export journal</div>
-                    <DropdownMenuItem asChild className="rounded-lg text-[13px]">
-                      <a href={`${base}api/export/markdown`} download="starlog.md" data-testid="link-export-markdown">Markdown</a>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild className="rounded-lg text-[13px]">
-                      <a href={`${base}api/export/json`} download="starlog.json" data-testid="link-export-json">JSON</a>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                </TouchHint>
-                <TouchHint label="Your sky and shortcuts">
-                <Popover>
-                  <Tip label="Your sky and shortcuts">
-                  <PopoverTrigger asChild>
-                    <button aria-label="Your sky and shortcuts" className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.07] hover:text-foreground" data-testid="button-menu">
-                      <Menu className="h-4 w-4" />
-                    </button>
-                  </PopoverTrigger>
-                  </Tip>
-                  <PopoverContent side="top" align="end" className="sky-glass mb-2 w-72 rounded-2xl border-0 p-5">
-                    <div className="mb-3 text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/70">Your sky</div>
-                    <StatsReadout />
-                    <div className="my-4 h-px bg-white/[0.07]" />
-                    <div className="mb-2 text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/70">Shortcuts</div>
-                    <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[12.5px]">
-                      {[["N", "New star"], ["/", "Search"], ["R", "Recent stars"], ["Ctrl + Z", "Undo a delete"], ["Esc", "Close card, exit modes"], ["Double-click", "Star at that spot"], ["Drag halo", "Connect two stars"]].map(([k, v]) => (
-                        <div key={k} className="contents"><dt className="font-medium text-foreground/90">{k}</dt><dd className="text-muted-foreground">{v}</dd></div>
-                      ))}
-                    </dl>
-                    <div className="my-4 h-px bg-white/[0.07]" />
-                    {sky.isDemo ? (
-                      <div className="flex gap-2">
-                        <button onClick={() => leaveDemo(true)} className="flex-1 rounded-full bg-primary py-2 text-[12.5px] font-medium text-primary-foreground">Log in</button>
-                        <button onClick={() => leaveDemo(false)} className="flex-1 rounded-full border border-white/10 py-2 text-[12.5px] text-muted-foreground hover:text-foreground">Leave demo</button>
-                      </div>
-                    ) : (
-                      <button onClick={logout} className="w-full rounded-full border border-white/10 py-2 text-[12.5px] text-muted-foreground transition-colors hover:text-foreground" data-testid="button-logout">Log out</button>
-                    )}
-                  </PopoverContent>
-                </Popover>
-                </TouchHint>
+                {narrow ? (
+                  <>
+                    <ToolButton label="Today" active={todayOpen} onClick={openToday} testId="button-today" badge={todayBadge}><CalendarCheck2 className="h-[18px] w-[18px]" /></ToolButton>
+                    <ToolButton label="Search" active={searchOpen} onClick={() => setSearchOpen((v) => !v)} testId="button-search"><Search className="h-[18px] w-[18px]" /></ToolButton>
+                    <TouchHint label="Add a task">
+                      <button onClick={openQuickAdd} aria-label="Add a task" className="mx-1 flex h-11 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground transition-all duration-500 soft-ease active:scale-95" data-testid="button-quick-add">
+                        <Plus className="h-5 w-5" />
+                      </button>
+                    </TouchHint>
+                    {moreMenu()}
+                  </>
+                ) : (
+                  <>
+                    <TouchHint label="New star">
+                      <button onClick={createAtCenter} disabled={actions.creating} className="mr-1 flex h-9 items-center gap-1.5 rounded-full bg-primary px-4 text-[13px] font-medium text-primary-foreground transition-all duration-500 soft-ease hover:brightness-105 disabled:opacity-60" data-testid="button-new-star">
+                        <Plus className="h-4 w-4" /> New Star
+                      </button>
+                    </TouchHint>
+                    <ToolButton label="Today" kbd="T" active={todayOpen} onClick={openToday} testId="button-today" badge={todayBadge}><CalendarCheck2 className="h-4 w-4" /></ToolButton>
+                    <ToolButton label="Add a task" kbd="A" active={quickAddOpen} onClick={openQuickAdd} testId="button-quick-add"><ListPlus className="h-4 w-4" /></ToolButton>
+                    <ToolButton label="Connect stars" active={connectMode} onClick={startConnect} testId="button-connect-mode"><Link2 className="h-4 w-4" /></ToolButton>
+                    <ToolButton label="Recent stars" kbd="R" active={recentOpen} onClick={() => setRecentOpen((v) => !v)} testId="button-recent"><Clock className="h-4 w-4" /></ToolButton>
+                    <ToolButton label="Search" kbd="/" active={searchOpen} onClick={() => setSearchOpen((v) => !v)} testId="button-search"><Search className="h-4 w-4" /></ToolButton>
+                    <ToolButton label="Timeline" onClick={openTimeline} testId="button-timeline"><ChartNoAxesGantt className="h-4 w-4" /></ToolButton>
+                    <ToolButton label="Zoom out" onClick={() => canvas.current?.zoomBy(0.75)} testId="button-zoom-out"><ZoomOut className="h-4 w-4" /></ToolButton>
+                    <ToolButton label="Zoom in" onClick={() => canvas.current?.zoomBy(1.33)} testId="button-zoom-in"><ZoomIn className="h-4 w-4" /></ToolButton>
+                    <TouchHint label="Export journal">
+                    <DropdownMenu>
+                      <Tip label="Export journal">
+                      <DropdownMenuTrigger asChild>
+                        <button aria-label="Export journal" className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.07] hover:text-foreground" data-testid="button-export">
+                          <Download className="h-4 w-4" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      </Tip>
+                      <DropdownMenuContent side="top" align="center" className="sky-glass mb-2 min-w-44 rounded-xl border-0 p-1.5">
+                        <div className="px-2 pb-1.5 pt-1 text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/70">Export journal</div>
+                        <DropdownMenuItem asChild className="rounded-lg text-[13px]">
+                          <a href={`${base}api/export/markdown`} download="starlog.md" data-testid="link-export-markdown">Markdown</a>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild className="rounded-lg text-[13px]">
+                          <a href={`${base}api/export/json`} download="starlog.json" data-testid="link-export-json">JSON</a>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                    </TouchHint>
+                    <TouchHint label="Your sky and shortcuts">
+                    <Popover>
+                      <Tip label="Your sky and shortcuts">
+                      <PopoverTrigger asChild>
+                        <button aria-label="Your sky and shortcuts" className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.07] hover:text-foreground" data-testid="button-menu">
+                          <Menu className="h-4 w-4" />
+                        </button>
+                      </PopoverTrigger>
+                      </Tip>
+                      <PopoverContent side="top" align="end" className="sky-glass mb-2 w-72 rounded-2xl border-0 p-5">
+                        <div className="mb-3 text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/70">Your sky</div>
+                        <StatsReadout />
+                        <div className="my-4 h-px bg-white/[0.07]" />
+                        <div className="mb-2 text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/70">Shortcuts</div>
+                        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[12.5px]">
+                          {[["N", "New star"], ["A", "Quick add a task"], ["T", "Today"], ["/", "Search"], ["R", "Recent stars"], ["Ctrl + Z", "Undo a delete"], ["Esc", "Close card, exit modes"], ["Double-click", "Star at that spot"], ["Drag halo", "Connect two stars"]].map(([k, v]) => (
+                            <div key={k} className="contents"><dt className="font-medium text-foreground/90">{k}</dt><dd className="text-muted-foreground">{v}</dd></div>
+                          ))}
+                        </dl>
+                        <div className="my-4 h-px bg-white/[0.07]" />
+                        {sky.isDemo ? (
+                          <div className="flex gap-2">
+                            <button onClick={() => leaveDemo(true)} className="flex-1 rounded-full bg-primary py-2 text-[12.5px] font-medium text-primary-foreground">Log in</button>
+                            <button onClick={() => leaveDemo(false)} className="flex-1 rounded-full border border-white/10 py-2 text-[12.5px] text-muted-foreground hover:text-foreground">Leave demo</button>
+                          </div>
+                        ) : (
+                          <button onClick={logout} className="w-full rounded-full border border-white/10 py-2 text-[12.5px] text-muted-foreground transition-colors hover:text-foreground" data-testid="button-logout">Log out</button>
+                        )}
+                      </PopoverContent>
+                    </Popover>
+                    </TouchHint>
+                  </>
+                )}
               </div>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
+      {/* today */}
+      <AnimatePresence>
+        {todayOpen && (narrow ? (
+          <BottomSheet key="today" height={todayHeight} testId="sheet-today" z={35}>
+            <TodayPanel
+              sky={sky}
+              actions={actions}
+              onPickTask={pickTodayTask}
+              onClose={() => setTodayOpen(false)}
+              ensureStar={ensureStar}
+              handle={
+                <div
+                  className="flex h-6 w-full shrink-0 touch-none items-center justify-center"
+                  onPointerDown={todayDrag.onSheetHandleDown}
+                  onPointerMove={todayDrag.onSheetHandleMove}
+                  onPointerUp={todayDrag.onSheetHandleUp}
+                  onPointerCancel={todayDrag.onSheetHandleCancel}
+                  data-testid="today-drag-handle"
+                >
+                  <span className="h-1 w-10 rounded-full bg-white/20" />
+                </div>
+              }
+            />
+          </BottomSheet>
+        ) : (
+          <motion.div
+            key="today"
+            initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} transition={{ duration: 0.55, ease: EASE }}
+            className="absolute left-6 top-20 z-20 flex max-h-[calc(100dvh-12rem)] min-h-[14rem] w-[22rem] flex-col"
+          >
+            <TodayPanel sky={sky} actions={actions} onPickTask={pickTodayTask} onClose={() => setTodayOpen(false)} ensureStar={ensureStar} />
+          </motion.div>
+        ))}
+      </AnimatePresence>
+
+      {/* quick add */}
+      <AnimatePresence>
+        {quickAddOpen && (
+          <>
+            {narrow && <motion.div key="qa-veil" className="fixed inset-0 z-[39] bg-black/40" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setQuickAddOpen(false)} />}
+            <motion.div
+              key="qa"
+              initial={{ opacity: 0, y: narrow ? 24 : -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: narrow ? 24 : -10 }} transition={{ duration: 0.45, ease: EASE }}
+              className={narrow ? "fixed inset-x-3 z-40" : "absolute left-1/2 top-20 z-30 w-[min(92vw,34rem)] -translate-x-1/2"}
+              style={narrow ? { bottom: keyboard.inset + 12 } : undefined}
+            >
+              <QuickAdd
+                sky={sky}
+                actions={actions}
+                ensureStar={ensureStar}
+                createStarNamed={createStarNamed}
+                onClose={() => setQuickAddOpen(false)}
+                onAdded={(star, title, isNew) => {
+                  setQuickAddOpen(false);
+                  if (!narrow && selectedId === star.id) setCardTab("tasks");
+                  toast({ title: `Added to ${star.title}`, description: title });
+                  if (narrow || isNew || selectedId != null) focusStar(star.id, { tab: "tasks", star });
+                  else canvas.current?.flyTo(star.x, star.y);
+                }}
+              />
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       {/* journal card */}
       <AnimatePresence>
-        {selected && (
+        {selected && (narrow ? (
+          <BottomSheet key="card" height={sheetHeight} testId="sheet-card">
+            {card(selected)}
+          </BottomSheet>
+        ) : (
           <motion.div
             key="card"
-            initial={narrow ? { y: "100%", opacity: 0.6 } : { x: 28, opacity: 0, scale: 0.985 }}
-            animate={narrow ? { y: 0, opacity: 1 } : { x: 0, opacity: 1, scale: 1 }}
-            exit={narrow ? { y: "100%", opacity: 0.4 } : { x: 24, opacity: 0, scale: 0.985 }}
+            initial={{ x: 28, opacity: 0, scale: 0.985 }}
+            animate={{ x: 0, opacity: 1, scale: 1 }}
+            exit={{ x: 24, opacity: 0, scale: 0.985 }}
             transition={{ duration: 0.65, ease: EASE }}
-            className={narrow
-              ? `absolute inset-x-0 bottom-0 z-30 ${sheetHeight === "full" ? "h-[90dvh]" : "h-[50dvh]"}`
-              : "absolute bottom-6 right-6 top-6 z-30 w-[400px]"}
+            className="absolute bottom-6 right-6 top-6 z-30 w-[400px]"
           >
-            <JournalCard
-              star={selected}
-              sky={sky}
-              roots={roots}
-              actions={actions}
-              onClose={() => { setSelectedId(null); setFocusNote(null); }}
-              onStartConnect={(id) => { setSelectedId(null); setFocusNote(null); setConnectFrom(id); setConnectMode(true); }}
-              sheetHeight={sheetHeight}
-              onSheetHeightChange={setSheetHeight}
-              narrow={narrow}
-              focusNoteId={focusNote?.starId === selected.id ? focusNote.noteId : null}
-            />
+            {card(selected)}
           </motion.div>
-        )}
+        ))}
       </AnimatePresence>
     </div>
   );
+
+  function card(star: Star) {
+    return (
+      <JournalCard
+        star={star}
+        sky={sky}
+        roots={roots}
+        actions={actions}
+        onClose={() => { setSelectedId(null); setFocusNote(null); }}
+        onStartConnect={(id) => { setSelectedId(null); setFocusNote(null); setConnectFrom(id); setConnectMode(true); }}
+        sheetHeight={sheetHeight}
+        onSheetHeightChange={setSheetHeight}
+        narrow={narrow}
+        focusNoteId={focusNote?.starId === star.id ? focusNote.noteId : null}
+        tab={cardTab}
+        onTabChange={setCardTab}
+        onSwitchStar={(id) => { setFocusNote(null); focusStar(id, { keepTab: true }); }}
+      />
+    );
+  }
+
+  /** Phone "More" menu: connect, recent, timeline, filters, export, account. */
+  function moreMenu() {
+    const item = "min-h-11 rounded-lg px-3 text-[14px]";
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button aria-label="More" className="flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.07] hover:text-foreground" data-testid="button-more">
+            <MoreHorizontal className="h-[18px] w-[18px]" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="top" align="end" sideOffset={12} className="sheet-panel mb-1 max-h-[70dvh] w-64 overflow-y-auto rounded-2xl p-1.5" data-testid="menu-more">
+          <DropdownMenuItem className={item} onSelect={createAtCenter} data-testid="menu-new-star"><Plus className="mr-2.5 h-4 w-4" />New star</DropdownMenuItem>
+          <DropdownMenuItem className={item} onSelect={startConnect} data-testid="menu-connect"><Link2 className="mr-2.5 h-4 w-4" />Connect stars</DropdownMenuItem>
+          <DropdownMenuItem className={item} onSelect={() => setRecentOpen((v) => !v)} data-testid="menu-recent"><Clock className="mr-2.5 h-4 w-4" />Recent stars</DropdownMenuItem>
+          <DropdownMenuItem className={item} onSelect={openTimeline} data-testid="menu-timeline"><ChartNoAxesGantt className="mr-2.5 h-4 w-4" />Timeline</DropdownMenuItem>
+          {sky.labels.length > 0 && (
+            <>
+              <DropdownMenuSeparator className="my-1.5 bg-white/[0.06]" />
+              <div className="px-3 pb-1 pt-1 text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/70">Filter by label</div>
+              {sky.labels.map((l) => (
+                <DropdownMenuItem key={l.id} className={item} onSelect={() => setLabelFilter((c) => (c === l.id ? null : l.id))} data-testid={`menu-filter-${l.id}`}>
+                  <span className="mr-3 h-2 w-2 rounded-full" style={{ background: l.color, boxShadow: labelFilter === l.id ? `0 0 8px ${l.color}` : undefined }} />
+                  <span className={`flex-1 truncate ${labelFilter === l.id ? "text-foreground" : ""}`}>{l.name}</span>
+                  {labelFilter === l.id && <span className="text-[11px] text-muted-foreground">On</span>}
+                </DropdownMenuItem>
+              ))}
+            </>
+          )}
+          <DropdownMenuSeparator className="my-1.5 bg-white/[0.06]" />
+          <DropdownMenuItem asChild className={item}>
+            <a href={`${base}api/export/markdown`} download="starlog.md" data-testid="link-export-markdown"><Download className="mr-2.5 h-4 w-4" />Export as Markdown</a>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild className={item}>
+            <a href={`${base}api/export/json`} download="starlog.json" data-testid="link-export-json"><Download className="mr-2.5 h-4 w-4" />Export as JSON</a>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator className="my-1.5 bg-white/[0.06]" />
+          {sky.isDemo ? (
+            <>
+              <DropdownMenuItem className={item} onSelect={() => leaveDemo(true)}>Log in to start your own</DropdownMenuItem>
+              <DropdownMenuItem className={item} onSelect={() => leaveDemo(false)}>Leave demo</DropdownMenuItem>
+            </>
+          ) : (
+            <DropdownMenuItem className={item} onSelect={logout} data-testid="button-logout">Log out</DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
 }
