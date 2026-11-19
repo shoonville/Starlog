@@ -36,7 +36,7 @@ function LabelEditor({ label, actions, onDone }: { label: Label; actions: SkyAct
             key={p.hex}
             title={p.name}
             onClick={() => actions.editLabel(label.id, { color: p.hex })}
-            className={`h-5 w-5 rounded-full transition-transform duration-300 soft-ease ${label.color.toLowerCase() === p.hex.toLowerCase() ? "scale-110 ring-2 ring-white/50 ring-offset-2 ring-offset-[#1d1534]" : "hover:scale-110"}`}
+            className={`h-5 w-5 rounded-full transition-transform duration-300 soft-ease ${label.color.toLowerCase() === p.hex.toLowerCase() ? "scale-110 ring-2 ring-white/50 ring-offset-2 ring-offset-[#111114]" : "hover:scale-110"}`}
             style={{ background: p.hex }}
           />
         ))}
@@ -119,7 +119,7 @@ export function Legend({
             <input autoFocus value={name} maxLength={40} onChange={(e) => setName(e.target.value)} placeholder="Label name" className="quiet-input w-full border-b border-white/10 pb-1.5 text-[13px]" data-testid="input-label-new" />
             <div className="flex flex-wrap gap-1.5">
               {PALETTE.map((p) => (
-                <button type="button" key={p.hex} title={p.name} onClick={() => setColor(p.hex)} className={`h-5 w-5 rounded-full transition-transform duration-300 ${color === p.hex ? "scale-110 ring-2 ring-white/50 ring-offset-2 ring-offset-[#1d1534]" : "hover:scale-110"}`} style={{ background: p.hex }} />
+                <button type="button" key={p.hex} title={p.name} onClick={() => setColor(p.hex)} className={`h-5 w-5 rounded-full transition-transform duration-300 ${color === p.hex ? "scale-110 ring-2 ring-white/50 ring-offset-2 ring-offset-[#111114]" : "hover:scale-110"}`} style={{ background: p.hex }} />
               ))}
             </div>
             <button type="submit" disabled={!name.trim()} className="w-full rounded-full bg-primary py-1.5 text-[12.5px] font-medium text-primary-foreground disabled:opacity-30" data-testid="button-create-label">

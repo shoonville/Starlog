@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import type { Connection, Label, Star } from "@workspace/api-client-react";
 import { DEFAULT_STAR, MAX_ZOOM, MIN_ZOOM, starRadius, type ConstellationView } from "@/lib/sky";
-import { drawSkyBackground, getSprite, makeBgStars } from "@/lib/starfield";
+import { getSprite, Starfield } from "@/lib/starfield";
 
 export type SkyCanvasHandle = {
   flyTo: (x: number, y: number, opts?: { dx?: number; dy?: number; zoom?: number }) => void;
@@ -118,7 +118,9 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
     g: { kind: "none" } as Gesture,
     longTimer: 0,
     lastTap: { t: 0, x: 0, y: 0 },
-    bg: makeBgStars(280),
+    bg: new Starfield(7),
+    bgOff: { x: 0, y: 0 },
+    bgPrev: null as null | { x: number; y: number },
     mouse: { x: -999, y: -999 },
     initialized: false,
   });
@@ -536,7 +538,13 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
       }
 
       ctx.setTransform(s.dpr, 0, 0, s.dpr, 0, 0);
-      drawSkyBackground(ctx, w, h, t, s.bg, s.cam.x * s.cam.z, s.cam.y * s.cam.z);
+      // background starfield follows screen-space pan (not zoom), at reduced speed for depth
+      if (s.bgPrev) {
+        s.bgOff.x += (s.cam.x - s.bgPrev.x) * s.cam.z;
+        s.bgOff.y += (s.cam.y - s.bgPrev.y) * s.cam.z;
+      }
+      s.bgPrev = { x: s.cam.x, y: s.cam.y };
+      s.bg.draw(ctx, w, h, s.dpr, t, s.bgOff.x, s.bgOff.y);
 
       const byId = new Map<number, Star>();
       for (const st of p.stars) byId.set(st.id, st);
@@ -660,7 +668,7 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
         if (hov) {
           const mx = (pa.x + pb.x) / 2, my = (pa.y + pb.y) / 2;
           if (labelRects.some((r) => mx >= r.left && mx <= r.right && my >= r.top && my <= r.bottom)) continue;
-          ctx.fillStyle = "rgba(30,22,52,0.9)";
+          ctx.fillStyle = "rgba(17,17,20,0.95)";
           ctx.strokeStyle = "rgba(244,214,190,0.7)";
           ctx.lineWidth = 1;
           ctx.beginPath();

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { drawSkyBackground, getSprite, makeBgStars } from "@/lib/starfield";
+import { getSprite, Starfield } from "@/lib/starfield";
 
 /** Decorative sky for landing / loading / error screens. Optionally draws a slow sample constellation. */
 export function NightBackdrop({ constellation = false }: { constellation?: boolean }) {
@@ -7,7 +7,7 @@ export function NightBackdrop({ constellation = false }: { constellation?: boole
   useEffect(() => {
     const c = ref.current!;
     const ctx = c.getContext("2d")!;
-    const bg = makeBgStars(320, 21);
+    const bg = new Starfield(21);
     let raf = 0;
     const start = performance.now();
     const pts = [
@@ -27,7 +27,7 @@ export function NightBackdrop({ constellation = false }: { constellation?: boole
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const t = now / 1000;
       const drift = (now - start) / 1000;
-      drawSkyBackground(ctx, w, h, t, bg, drift * 6, drift * 2);
+      bg.draw(ctx, w, h, dpr, t, drift * 4, drift * 1.5);
       if (!constellation) return;
       const narrow = w < 768;
       const P = pts.map((p) => ({ ...p, x: (narrow ? p.x * 1.2 - 0.3 : p.x) * w, y: (narrow ? p.y * 0.55 + 0.02 : p.y) * h }));

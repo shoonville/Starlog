@@ -120,7 +120,7 @@ function NoteRow({ note, focused, onDelete, onSaved }: { note: Note; focused: bo
       data-note-id={note.id}
       data-testid={`note-${note.id}`}
     >
-      <span className="absolute left-0 top-[9px] h-1.5 w-1.5 rounded-full bg-[hsl(36_72%_82%/0.55)]" />
+      <span className="absolute left-0 top-[9px] h-1.5 w-1.5 rounded-full bg-primary/55" />
       <div className="mb-1 flex items-center gap-2 text-[11px] text-muted-foreground/80">
         <span data-testid={`text-note-time-${note.id}`}>{formatStamp(note.createdAt)}</span>
         {note.editedAt && <span className="opacity-70">· edited {formatStamp(note.editedAt)}</span>}
@@ -488,7 +488,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
                   key={p.hex}
                   title={p.name}
                   onClick={() => setNewLabel({ ...newLabel, color: p.hex })}
-                  className={`h-5 w-5 rounded-full transition-transform duration-300 soft-ease ${newLabel.color === p.hex ? "scale-110 ring-2 ring-white/50 ring-offset-2 ring-offset-[#1d1534]" : "hover:scale-110"}`}
+                  className={`h-5 w-5 rounded-full transition-transform duration-300 soft-ease ${newLabel.color === p.hex ? "scale-110 ring-2 ring-white/50 ring-offset-2 ring-offset-[#111114]" : "hover:scale-110"}`}
                   style={{ background: p.hex }}
                 />
               ))}
@@ -563,7 +563,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
                       key={p.hex}
                       title={p.name}
                       onClick={() => setNewLabel({ ...newLabel, color: p.hex })}
-                      className={`h-5 w-5 rounded-full transition-transform duration-300 soft-ease ${newLabel.color === p.hex ? "scale-110 ring-2 ring-white/50 ring-offset-2 ring-offset-[#1d1534]" : "hover:scale-110"}`}
+                      className={`h-5 w-5 rounded-full transition-transform duration-300 soft-ease ${newLabel.color === p.hex ? "scale-110 ring-2 ring-white/50 ring-offset-2 ring-offset-[#111114]" : "hover:scale-110"}`}
                       style={{ background: p.hex }}
                     />
                   ))}
@@ -706,7 +706,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
           <AlertDialogFooter>
             <AlertDialogCancel className="rounded-full border-white/10 bg-transparent">Keep it</AlertDialogCancel>
             <AlertDialogAction
-              className="rounded-full bg-[hsl(350_55%_68%)] text-[hsl(258_40%_10%)] hover:bg-[hsl(350_55%_72%)]"
+              className="rounded-full bg-[hsl(350_55%_68%)] text-[hsl(260_30%_8%)] hover:bg-[hsl(350_55%_72%)]"
               onClick={() => { if (confirmNote) removeNote(confirmNote); setConfirmNote(null); }}
               data-testid="button-confirm-delete-note"
             >
@@ -727,7 +727,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
           <AlertDialogFooter>
             <AlertDialogCancel className="rounded-full border-white/10 bg-transparent">Keep it</AlertDialogCancel>
             <AlertDialogAction
-              className="rounded-full bg-[hsl(350_55%_68%)] text-[hsl(258_40%_10%)] hover:bg-[hsl(350_55%_72%)]"
+              className="rounded-full bg-[hsl(350_55%_68%)] text-[hsl(260_30%_8%)] hover:bg-[hsl(350_55%_72%)]"
               onClick={() => { actions.removeStar(star.id, star.title); onClose(); }}
               data-testid="button-confirm-delete-star"
             >

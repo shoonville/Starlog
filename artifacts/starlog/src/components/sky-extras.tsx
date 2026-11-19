@@ -163,7 +163,7 @@ export function UndoBar() {
       <button onClick={() => undoDelete(latest.key)} className="rounded-full bg-primary px-3 py-1 font-medium text-primary-foreground transition-all hover:brightness-105" data-testid="button-undo">
         Undo
       </button>
-      <span className="undo-drain absolute bottom-0 left-0 h-[2px] w-full bg-[hsl(36_72%_82%/0.5)]" style={{ animationDuration: `${remaining}ms` }} />
+      <span className="undo-drain absolute bottom-0 left-0 h-[2px] w-full bg-primary/50" style={{ animationDuration: `${remaining}ms` }} />
     </div>
   );
 }

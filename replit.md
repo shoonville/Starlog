@@ -41,6 +41,7 @@ A calm journal where each thought or topic is a glowing star in your own night-s
 
 - Pan/zoom night sky; create, drag, label and connect stars; journal card with timestamped, editable notes; color-label legend with highlight; named constellations; search; timeline replay; Markdown/JSON export; keyboard shortcuts (N, /, R, Ctrl+Z, Esc); recent-stars panel; "On this day"; undo for deletes; formatted notes with word count; private skies per account plus a demo sky.
 - On phones, the journal opens as a 90%-height sheet that snaps to half height or closes on a downward swipe. The card offers tap-to-connect and a searchable star picker; note formatting expands on focus, and the label is chosen from a single current-label chip. Desktop card layout and label controls remain unchanged.
+- Visual theme: true-black (#000) sky for OLED, soft off-white text, lavender-purple accent for buttons/highlights, panels in #111114 with a thin border. The faint background starfield is pre-rendered once into offscreen tiles (two parallax layers moving slower than journal stars) plus a few slow twinklers drawn per frame; it is decoration only and never hit-tested.
 - Newly created connection strokes draw in softly. Canvas connection strokes and previews are clipped around constellation-name labels so the names remain unobstructed.
 
 ## Gotchas

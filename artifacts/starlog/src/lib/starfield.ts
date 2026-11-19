@@ -1,6 +1,8 @@
 import { hexToRgb } from "./sky";
 
-export type BgStar = { x: number; y: number; r: number; a: number; sp: number; ph: number; depth: number; warm: boolean };
+type Dot = { x: number; y: number; r: number; a: number };
+type Twinkler = Dot & { sp: number; ph: number };
+type Layer = { depth: number; dots: Dot[]; tile: HTMLCanvasElement | null };
 
 function rng(seed: number) {
   let s = seed >>> 0;
@@ -10,68 +12,113 @@ function rng(seed: number) {
   };
 }
 
-export function makeBgStars(n: number, seed = 7): BgStar[] {
-  const r = rng(seed);
-  return Array.from({ length: n }, () => {
-    const big = r() < 0.08;
-    return {
+const mod = (v: number, m: number) => ((v % m) + m) % m;
+
+/**
+ * Faint decorative starfield on a true-black sky.
+ * Dots are rendered once into offscreen tiles (one per depth layer) and blitted with a
+ * parallax offset each frame; only a handful of slow twinklers are drawn per frame.
+ * Positions are normalized (0..1) so the field keeps its layout across resizes.
+ */
+export class Starfield {
+  private layers: Layer[];
+  private twinklers: Twinkler[];
+  private w = 0;
+  private h = 0;
+  private dpr = 0;
+
+  constructor(seed = 7) {
+    const r = rng(seed);
+    // Generated for up to 4,000,000 CSS px²; the viewport area decides how many are used.
+    const far: Dot[] = Array.from({ length: 560 }, () => ({ x: r(), y: r(), r: 0.5, a: 0.1 + r() * 0.16 }));
+    const near: Dot[] = Array.from({ length: 280 }, () => {
+      const big = r() < 0.3;
+      return { x: r(), y: r(), r: big ? 0.85 + r() * 0.15 : 0.5 + r() * 0.2, a: 0.18 + r() * 0.24 };
+    });
+    this.layers = [
+      { depth: 0.5, dots: far, tile: null },
+      { depth: 0.72, dots: near, tile: null },
+    ];
+    this.twinklers = Array.from({ length: 48 }, () => ({
       x: r(),
       y: r(),
-      r: big ? 0.9 + r() * 0.7 : 0.35 + r() * 0.55,
-      a: big ? 0.5 + r() * 0.3 : 0.18 + r() * 0.35,
-      sp: 0.12 + r() * 0.28,
+      r: 0.55 + r() * 0.35,
+      a: 0.22 + r() * 0.2,
+      sp: (Math.PI * 2) / (9 + r() * 9), // one slow breath every 9–18s
       ph: r() * Math.PI * 2,
-      depth: 0.015 + r() * 0.05,
-      warm: r() < 0.3,
-    };
-  });
-}
-
-let gradCache: { w: number; h: number; base: CanvasGradient; glow: CanvasGradient; neb: CanvasGradient } | null = null;
-
-export function drawSkyBackground(
-  ctx: CanvasRenderingContext2D,
-  w: number,
-  h: number,
-  t: number,
-  stars: BgStar[],
-  camX = 0,
-  camY = 0,
-) {
-  if (!gradCache || gradCache.w !== w || gradCache.h !== h) {
-    const base = ctx.createLinearGradient(0, 0, w * 0.25, h);
-    base.addColorStop(0, "#130e24");
-    base.addColorStop(0.45, "#1f1638");
-    base.addColorStop(1, "#33214c");
-    const glow = ctx.createRadialGradient(w * 0.5, h * 1.15, 0, w * 0.5, h * 1.15, Math.max(w, h) * 0.85);
-    glow.addColorStop(0, "rgba(214,140,160,0.20)");
-    glow.addColorStop(0.45, "rgba(150,96,160,0.08)");
-    glow.addColorStop(1, "rgba(60,40,90,0)");
-    const neb = ctx.createRadialGradient(w * 0.82, h * 0.18, 0, w * 0.82, h * 0.18, Math.max(w, h) * 0.55);
-    neb.addColorStop(0, "rgba(160,140,230,0.10)");
-    neb.addColorStop(1, "rgba(160,140,230,0)");
-    gradCache = { w, h, base, glow, neb };
+    }));
   }
-  ctx.fillStyle = gradCache.base;
-  ctx.fillRect(0, 0, w, h);
-  ctx.fillStyle = gradCache.neb;
-  ctx.fillRect(0, 0, w, h);
-  ctx.fillStyle = gradCache.glow;
-  ctx.fillRect(0, 0, w, h);
 
-  for (const s of stars) {
-    let x = (s.x * w - camX * s.depth) % w;
-    let y = (s.y * h - camY * s.depth) % h;
-    if (x < 0) x += w;
-    if (y < 0) y += h;
-    const tw = 0.62 + 0.38 * Math.sin(t * s.sp + s.ph);
-    ctx.globalAlpha = s.a * tw;
-    ctx.fillStyle = s.warm ? "#f6e3c8" : "#ddd6f4";
-    ctx.beginPath();
-    ctx.arc(x, y, s.r, 0, Math.PI * 2);
-    ctx.fill();
+  private build(w: number, h: number, dpr: number) {
+    this.w = w;
+    this.h = h;
+    this.dpr = dpr;
+    const area = (w * h) / 1_000_000;
+    const W = Math.max(1, Math.round(w * dpr));
+    const H = Math.max(1, Math.round(h * dpr));
+    for (const layer of this.layers) {
+      const tile = layer.tile ?? document.createElement("canvas");
+      tile.width = W;
+      tile.height = H;
+      const g = tile.getContext("2d")!;
+      g.clearRect(0, 0, W, H);
+      g.fillStyle = "#ffffff";
+      const n = Math.min(layer.dots.length, Math.ceil((layer.dots.length / 4) * Math.max(0.4, area)));
+      for (let i = 0; i < n; i++) {
+        const d = layer.dots[i];
+        const x = Math.round(d.x * W) + 0.5;
+        const y = Math.round(d.y * H) + 0.5;
+        const rad = d.r * dpr;
+        g.globalAlpha = d.a;
+        // draw wrapped copies near edges so the tile repeats seamlessly
+        for (const ox of x < 3 ? [0, W] : x > W - 3 ? [0, -W] : [0]) {
+          for (const oy of y < 3 ? [0, H] : y > H - 3 ? [0, -H] : [0]) {
+            g.beginPath();
+            g.arc(x + ox, y + oy, rad, 0, Math.PI * 2);
+            g.fill();
+          }
+        }
+      }
+      layer.tile = tile;
+    }
   }
-  ctx.globalAlpha = 1;
+
+  /** Paints black sky + starfield. offX/offY are accumulated screen-space pan in CSS px. */
+  draw(ctx: CanvasRenderingContext2D, w: number, h: number, dpr: number, t: number, offX = 0, offY = 0) {
+    if (w <= 0 || h <= 0) return;
+    if (w !== this.w || h !== this.h || dpr !== this.dpr) this.build(w, h, dpr);
+    const W = Math.round(w * dpr);
+    const H = Math.round(h * dpr);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    for (const layer of this.layers) {
+      const tile = layer.tile!;
+      // snap to whole device pixels so tiny dots stay crisp while panning
+      const ox = Math.round(mod(-offX * layer.depth * dpr, W));
+      const oy = Math.round(mod(-offY * layer.depth * dpr, H));
+      ctx.drawImage(tile, ox, oy);
+      if (ox > 0) ctx.drawImage(tile, ox - W, oy);
+      if (oy > 0) ctx.drawImage(tile, ox, oy - H);
+      if (ox > 0 && oy > 0) ctx.drawImage(tile, ox - W, oy - H);
+    }
+    const depth = this.layers[1].depth;
+    const n = Math.max(5, Math.min(this.twinklers.length, Math.round((this.twinklers.length / 4) * (w * h) / 1_000_000)));
+    ctx.fillStyle = "#ffffff";
+    for (let i = 0; i < n; i++) {
+      const s = this.twinklers[i];
+      const x = Math.round(mod(s.x * W - offX * depth * dpr, W)) + 0.5;
+      const y = Math.round(mod(s.y * H - offY * depth * dpr, H)) + 0.5;
+      const k = 0.5 + 0.5 * Math.sin(t * s.sp + s.ph);
+      ctx.globalAlpha = s.a * (0.25 + 0.75 * k * k);
+      ctx.beginPath();
+      ctx.arc(x, y, s.r * dpr, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
 }
 
 const spriteCache = new Map<string, HTMLCanvasElement>();
