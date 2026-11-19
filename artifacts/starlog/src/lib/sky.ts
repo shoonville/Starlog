@@ -56,6 +56,12 @@ export function formatStamp(iso: string) {
   return format(new Date(iso), "MMM d, yyyy · h:mm a");
 }
 
+/** Like formatStamp, but leaves out the year when it's the current one ("Nov 19 · 9:21 AM"). */
+export function formatStampShort(iso: string) {
+  const d = new Date(iso);
+  return format(d, d.getFullYear() === new Date().getFullYear() ? "MMM d · h:mm a" : "MMM d, yyyy · h:mm a");
+}
+
 /** id -> root id of its connected component */
 export function componentRoots(stars: Star[], connections: Connection[]) {
   const parent = new Map<number, number>();

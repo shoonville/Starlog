@@ -11,7 +11,7 @@ import {
   type Sky,
   type Star,
 } from "@workspace/api-client-react";
-import { Bold, Check, ChevronDown, Italic, Link2, List, MoreHorizontal, Plus, Search, Trash2, X } from "lucide-react";
+import { Bold, Check, ChevronDown, Italic, Link2, List, MoreHorizontal, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,14 +22,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { DEFAULT_STAR, PALETTE, constellationTint, formatStamp, type ConstellationView } from "@/lib/sky";
+import { DEFAULT_STAR, PALETTE, constellationTint, formatStamp, formatStampShort, type ConstellationView } from "@/lib/sky";
 import { TaskComposer, TaskList } from "@/components/task-list";
 import { FormattedNote, applyFormat, formatKeyDown, wordCount, type FormatKind } from "@/lib/note-format";
 import { scheduleDelete, usePendingDeletes } from "@/lib/pending-deletes";
 import type { SkyActions } from "@/hooks/use-sky-actions";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { useSheetDrag } from "@/components/bottom-sheet";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useKeyboardInset, useSheetDrag } from "@/components/bottom-sheet";
 
 function autosize(el: HTMLTextAreaElement | null) {
   if (!el) return;
@@ -205,7 +205,7 @@ function StarSwitcher({ members, currentId, colorOf, onPick }: { members: Star[]
     el?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
   }, [currentId]);
   return (
-    <div ref={row} className="no-scrollbar flex gap-1.5 overflow-x-auto px-5 pt-1 md:px-6" data-testid="star-switcher">
+    <div ref={row} className="no-scrollbar flex gap-1.5 overflow-x-auto px-5 pt-1 max-md:pt-0 md:px-6" data-testid="star-switcher">
       {members.map((m) => {
         const c = colorOf(m);
         const current = m.id === currentId;
@@ -215,11 +215,13 @@ function StarSwitcher({ members, currentId, colorOf, onPick }: { members: Star[]
             data-chip-id={m.id}
             onClick={() => !current && onPick(m.id)}
             aria-current={current ? "true" : undefined}
-            className={`flex h-8 max-w-[10rem] shrink-0 items-center gap-1.5 rounded-full border px-3 text-[12px] transition-colors duration-300 max-md:h-11 max-md:max-w-[9rem] ${current ? "border-white/[0.14] bg-white/[0.09] text-foreground" : "border-white/[0.06] text-muted-foreground hover:bg-white/[0.05] hover:text-foreground"}`}
+            className="group flex h-8 max-w-[10rem] shrink-0 items-center outline-none max-md:h-11 max-md:max-w-[9rem]"
             data-testid={`chip-star-${m.id}`}
           >
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: c, boxShadow: current ? `0 0 8px ${c}` : undefined }} />
-            <span className="truncate">{m.title}</span>
+            <span className={`flex h-8 min-w-0 items-center gap-1.5 rounded-full border px-3 text-[12px] transition-colors duration-300 group-focus-visible:ring-1 group-focus-visible:ring-white/20 ${current ? "border-white/[0.14] bg-white/[0.09] text-foreground" : "border-white/[0.06] text-muted-foreground group-hover:bg-white/[0.05] group-hover:text-foreground"}`}>
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: c, boxShadow: current ? `0 0 8px ${c}` : undefined }} />
+              <span className="truncate">{m.title}</span>
+            </span>
           </button>
         );
       })}
@@ -227,31 +229,84 @@ function StarSwitcher({ members, currentId, colorOf, onPick }: { members: Star[]
   );
 }
 
-/** One thin line naming this star's constellation, tinted like its name on the sky; opens a list of all constellations. */
-function ConstellationSwitcher({ name, tint, all, currentId, tintOf, onPick }: {
+/**
+ * One thin line naming this star's constellation, tinted like its name on the sky. It opens a list of
+ * all constellations to fly to, plus naming actions; renaming happens in place on the same line.
+ */
+function ConstellationSwitcher({ name, tint, all, currentId, tintOf, onPick, onRename, onRemoveName, className = "" }: {
   name: string | null;
   tint: [number, number, number];
   all: ConstellationView[];
   currentId: number | null;
   tintOf: (cv: ConstellationView) => [number, number, number];
   onPick: (cv: ConstellationView) => void;
+  /** Saves a new name (or the first name of an unnamed constellation). */
+  onRename: (name: string) => void;
+  onRemoveName: () => void;
+  className?: string;
 }) {
   const rgb = tint.join(",");
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const input = useRef<HTMLInputElement>(null);
+  const skipSave = useRef(false);
+  useEffect(() => {
+    if (!editing) return;
+    // Wait for the menu to finish closing before taking focus.
+    const t = window.setTimeout(() => { input.current?.focus(); input.current?.select(); }, 30);
+    return () => clearTimeout(t);
+  }, [editing]);
+  const finish = () => {
+    if (!skipSave.current) {
+      const n = draft.trim();
+      if (n && n !== name) onRename(n);
+    }
+    skipSave.current = false;
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className={`flex h-11 min-w-0 items-center md:h-8 ${className}`}>
+        <input
+          ref={input}
+          value={draft}
+          maxLength={60}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={finish}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); input.current?.blur(); }
+            if (e.key === "Escape") { e.stopPropagation(); skipSave.current = true; input.current?.blur(); }
+          }}
+          placeholder="Name this constellation"
+          aria-label="Constellation name"
+          className="quiet-input min-w-0 flex-1 border-b border-white/15 pb-0.5 text-[12px] font-medium uppercase tracking-[0.14em] placeholder:normal-case placeholder:tracking-normal"
+          style={{ color: `rgb(${rgb})` }}
+          data-testid="input-constellation-rename"
+        />
+      </div>
+    );
+  }
   return (
-    <div className="px-5 md:px-6">
+    <div className={`min-w-0 ${className}`}>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             className="-mx-1 flex h-11 max-w-full items-center gap-1.5 rounded-lg px-1 text-[11px] font-medium uppercase tracking-[0.16em] outline-none transition-opacity hover:opacity-100 focus-visible:ring-1 focus-visible:ring-white/20 md:h-8"
             style={{ color: `rgba(${rgb},${name ? 0.85 : 0.5})` }}
-            aria-label={name ? `Constellation ${name}. Switch constellation` : "Switch constellation"}
+            aria-label={name ? `Constellation ${name}. Switch or rename` : "Unnamed constellation. Switch or name"}
             data-testid="button-constellation-switcher"
           >
             <span className="truncate">{name ?? "Unnamed constellation"}</span>
             <ChevronDown className="h-3 w-3 shrink-0 opacity-80" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" sideOffset={4} className="sheet-panel max-h-[50dvh] w-64 overflow-y-auto rounded-2xl p-1.5" data-testid="menu-constellations">
+        <DropdownMenuContent
+          align="start"
+          sideOffset={4}
+          className="sheet-panel max-h-[50dvh] w-64 overflow-y-auto rounded-2xl p-1.5"
+          data-testid="menu-constellations"
+        >
           <div className="px-3 pb-1 pt-1 text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/70">Constellations</div>
           {all.length ? all.map((cv) => {
             const c = tintOf(cv).join(",");
@@ -269,7 +324,24 @@ function ConstellationSwitcher({ name, tint, all, currentId, tintOf, onPick }: {
               </DropdownMenuItem>
             );
           }) : (
-            <div className="px-3 py-2.5 text-[12.5px] text-muted-foreground/75">No named constellations yet. Name this one at the bottom of the card.</div>
+            <div className="px-3 py-2.5 text-[12.5px] text-muted-foreground/75">No named constellations yet.</div>
+          )}
+          <DropdownMenuSeparator className="my-1 bg-white/[0.07]" />
+          <DropdownMenuItem
+            onSelect={() => { setDraft(name ?? ""); skipSave.current = false; setEditing(true); }}
+            className="min-h-11 gap-3 rounded-lg px-3 text-[13.5px] text-foreground/85 md:min-h-9"
+            data-testid="menu-constellation-rename"
+          >
+            <Pencil className="h-3.5 w-3.5 text-muted-foreground" /> {name ? "Rename" : "Name"}
+          </DropdownMenuItem>
+          {name && (
+            <DropdownMenuItem
+              onSelect={onRemoveName}
+              className="min-h-11 gap-3 rounded-lg px-3 text-[13.5px] text-foreground/85 md:min-h-9"
+              data-testid="menu-constellation-remove-name"
+            >
+              <X className="h-3.5 w-3.5 text-muted-foreground" /> Remove name
+            </DropdownMenuItem>
           )}
         </DropdownMenuContent>
       </DropdownMenu>
@@ -367,7 +439,6 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
 
   // labels
   const [newLabel, setNewLabel] = useState<{ name: string; color: string } | null>(null);
-  const [labelPickerOpen, setLabelPickerOpen] = useState(false);
   const [dotPickerOpen, setDotPickerOpen] = useState(false);
   const label = sky.labels.find((l) => l.id === star.labelId) ?? null;
 
@@ -390,6 +461,15 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
     if (constellation) { if (n !== constellation.name) actions.renameConstellation(constellation.id, n); }
     else actions.nameConstellation(n, star.id);
   };
+
+  const renameConstellation = (n: string) => {
+    if (constellation) actions.renameConstellation(constellation.id, n);
+    else actions.nameConstellation(n, star.id);
+  };
+
+  // Phone: while the keyboard is up, the constellation line and chips step aside.
+  const keyboard = useKeyboardInset();
+  const typing = narrow && keyboard.inset > 0 && !document.activeElement?.matches("[data-testid=input-constellation-rename]");
 
   const [confirm, setConfirm] = useState(false);
   const hiddenNotes = useMemo(() => new Set(pendingDeletes.filter((p) => p.kind === "note").map((p) => p.id)), [pendingDeletes]);
@@ -487,6 +567,12 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
     </>
   );
 
+  const closeButton = (
+    <button onClick={onClose} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground md:-mr-2 md:h-9 md:w-9" aria-label="Close" data-testid="button-close-card">
+      <X className="h-4 w-4" />
+    </button>
+  );
+
   return (
     <div className="sky-glass relative flex h-full max-h-full flex-col overflow-hidden rounded-[22px]" data-testid="card-journal">
       {narrow && (
@@ -501,8 +587,8 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
           <span className="h-1 w-10 rounded-full bg-white/20" />
         </div>
       )}
-      {members.length > 1 && (
-        <div className="md:pt-3">
+      {(() => {
+        const switcher = (
           <ConstellationSwitcher
             name={constellation?.name ?? null}
             tint={tintOf(members.map((m) => m.id))}
@@ -510,19 +596,35 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
             currentId={constellation?.id ?? null}
             tintOf={(cv) => tintOf(cv.members)}
             onPick={onPickConstellation}
+            onRename={renameConstellation}
+            onRemoveName={() => { if (constellation) actions.removeConstellation(constellation.id); }}
+            className={narrow ? "flex-1" : "px-6"}
           />
-          <StarSwitcher members={members} currentId={star.id} colorOf={colorOfStar} onPick={onSwitchStar} />
-        </div>
-      )}
+        );
+        const chips = <StarSwitcher members={members} currentId={star.id} colorOf={colorOfStar} onPick={onSwitchStar} />;
+        if (!narrow) return members.length > 1 ? <div className="pt-3">{switcher}{chips}</div> : null;
+        // Phone: the constellation line carries the close button; it steps aside while the keyboard is up.
+        if (typing) return null;
+        return (
+          <div data-testid="card-top">
+            <div className="flex items-center gap-2 pl-5 pr-3">
+              {members.length > 1 ? switcher : <div className="flex-1" />}
+              {closeButton}
+            </div>
+            {members.length > 1 && chips}
+          </div>
+        );
+      })()}
       <div
-        className={`relative flex items-center gap-0.5 px-5 pb-3 md:px-6 ${members.length > 1 ? "pt-3" : narrow ? "pt-1" : "pt-5"}`}
+        className={narrow ? "relative flex items-center gap-0.5 py-0.5 pl-5 pr-3" : `relative flex items-center gap-0.5 px-6 pb-3 ${members.length > 1 ? "pt-3" : "pt-5"}`}
+        data-testid="card-title-row"
       >
         <Popover open={dotPickerOpen} onOpenChange={(o) => { setDotPickerOpen(o); if (!o) setNewLabel(null); }}>
           <PopoverTrigger asChild>
             <button
-              className="-my-2 -ml-2 flex h-11 w-7 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-1 focus-visible:ring-white/25 md:my-0 md:h-9"
-              aria-label={`Color: ${label?.name ?? "Unlabeled"}. Change`}
-              title="Change color"
+              className="-ml-2 flex h-11 w-7 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-1 focus-visible:ring-white/25 md:h-9"
+              aria-label={`Label and color: ${label?.name ?? "Unlabeled"}. Change`}
+              title="Change label and color"
               data-testid="button-star-color"
             >
               <span className="h-2.5 w-2.5 rounded-full transition-colors duration-700" style={{ background: dot, boxShadow: `0 0 10px ${dot}` }} />
@@ -543,95 +645,86 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
           }}
           maxLength={200}
           placeholder="Name this star"
-          className="quiet-input min-w-0 flex-1 text-[21px] font-medium tracking-[-0.015em] text-foreground"
+          className={`quiet-input min-w-0 flex-1 font-medium tracking-[-0.015em] text-foreground ${narrow ? "text-[20px]" : "text-[21px]"}`}
           data-testid="input-star-title"
         />
-        <button
-          onClick={() => onStartConnect(star.id)}
-          className="-my-2 hidden h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.06] hover:text-foreground max-md:flex"
-          aria-label="Connect this star"
-          title="Connect"
-          data-testid="button-connect-from-card"
-        >
-          <Link2 className="h-4 w-4" />
-        </button>
-        <Popover open={connectPickerOpen} onOpenChange={setConnectPickerOpen}>
-          <PopoverTrigger asChild>
+        {narrow ? (
+          <>
             <button
-              className="-my-2 hidden h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.06] hover:text-foreground max-md:flex"
-              aria-label="Connect to another star"
-              data-testid="button-connect-to"
+              onClick={() => onStartConnect(star.id)}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
+              aria-label="Connect this star"
+              title="Connect"
+              data-testid="button-connect-from-card"
             >
-              <Search className="h-3.5 w-3.5" />
+              <Link2 className="h-4 w-4" />
             </button>
-          </PopoverTrigger>
-          <PopoverContent side="bottom" align="end" className="sky-glass w-[min(20rem,84vw)] rounded-2xl border-0 p-2.5">
-            <div className="mb-2 flex items-center gap-2 rounded-xl bg-white/[0.05] px-3 py-2">
-              <Search className="h-3.5 w-3.5 text-muted-foreground/70" />
-              <input
-                autoFocus
-                value={connectQuery}
-                onChange={(e) => setConnectQuery(e.target.value)}
-                placeholder="Connect to…"
-                aria-label="Search stars to connect"
-                className="quiet-input min-w-0 flex-1 text-[13px]"
-                data-testid="input-connect-search"
-              />
-            </div>
-            <ul className="thin-scroll max-h-52 overflow-y-auto">
-              {connectableStars.length ? connectableStars.map((candidate) => (
-                <li key={candidate.id}>
-                  <button
-                    onClick={() => { actions.connect(star.id, candidate.id); setConnectPickerOpen(false); setConnectQuery(""); }}
-                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[13px] text-foreground/85 hover:bg-white/[0.06] hover:text-foreground"
-                    data-testid={`button-connect-star-${candidate.id}`}
+            <Popover open={connectPickerOpen} onOpenChange={(o) => { setConnectPickerOpen(o); if (!o) setConnectQuery(""); }}>
+              <DropdownMenu>
+                <PopoverAnchor asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.06] hover:text-foreground" aria-label="More star actions" data-testid="button-star-menu">
+                      <MoreHorizontal className="h-4 w-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                </PopoverAnchor>
+                <DropdownMenuContent align="end" onCloseAutoFocus={(e) => e.preventDefault()} className="sky-glass min-w-48 rounded-xl border-0 p-1.5">
+                  <DropdownMenuItem
+                    onSelect={() => window.setTimeout(() => setConnectPickerOpen(true), 0)}
+                    className="min-h-11 gap-2.5 rounded-lg text-[13.5px] text-foreground/90"
+                    data-testid="button-connect-to"
                   >
-                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: candidate.labelId == null ? DEFAULT_STAR : sky.labels.find((l) => l.id === candidate.labelId)?.color ?? DEFAULT_STAR }} />
-                    <span className="truncate">{candidate.title}</span>
-                  </button>
-                </li>
-              )) : <li className="px-3 py-3 text-[12px] text-muted-foreground/75">{connectQuery ? "No matching stars." : "All other stars are already connected."}</li>}
-            </ul>
-          </PopoverContent>
-        </Popover>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="-my-2 hidden h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white/[0.06] hover:text-foreground max-md:flex" aria-label="More star actions" data-testid="button-star-menu">
-              <MoreHorizontal className="h-4 w-4" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="sky-glass min-w-36 rounded-xl border-0 p-1.5">
-            <DropdownMenuItem
-              onSelect={() => setConfirm(true)}
-              className="rounded-lg text-[13px] text-[hsl(350_62%_78%)] focus:text-[hsl(350_62%_78%)]"
-              data-testid="menu-delete-star"
-            >
-              <Trash2 className="h-3.5 w-3.5" /> Delete star
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <button onClick={onClose} className="-my-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground md:my-0 md:-mr-2 md:h-9 md:w-9" aria-label="Close" data-testid="button-close-card">
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-      <div className="px-6 pb-4 text-[11.5px] text-muted-foreground/80">
-        Lit {formatStamp(star.createdAt)} · {star.noteCount} {star.noteCount === 1 ? "note" : "notes"}
+                    <Search className="h-3.5 w-3.5 text-muted-foreground" /> Find a star to connect
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => setConfirm(true)}
+                    className="min-h-11 gap-2.5 rounded-lg text-[13.5px] text-[hsl(350_62%_78%)] focus:text-[hsl(350_62%_78%)]"
+                    data-testid="menu-delete-star"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> Delete star
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <PopoverContent side="bottom" align="end" className="sky-glass w-[min(20rem,84vw)] rounded-2xl border-0 p-2.5" data-testid="popover-connect-to">
+                <div className="mb-2 flex items-center gap-2 rounded-xl bg-white/[0.05] px-3 py-2">
+                  <Search className="h-3.5 w-3.5 text-muted-foreground/70" />
+                  <input
+                    autoFocus
+                    value={connectQuery}
+                    onChange={(e) => setConnectQuery(e.target.value)}
+                    placeholder="Connect to…"
+                    aria-label="Search stars to connect"
+                    className="quiet-input min-w-0 flex-1 text-[13px]"
+                    data-testid="input-connect-search"
+                  />
+                </div>
+                <ul className="thin-scroll max-h-52 overflow-y-auto">
+                  {connectableStars.length ? connectableStars.map((candidate) => (
+                    <li key={candidate.id}>
+                      <button
+                        onClick={() => { actions.connect(star.id, candidate.id); setConnectPickerOpen(false); setConnectQuery(""); }}
+                        className="flex min-h-11 w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[13px] text-foreground/85 hover:bg-white/[0.06] hover:text-foreground"
+                        data-testid={`button-connect-star-${candidate.id}`}
+                      >
+                        <span className="h-1.5 w-1.5 rounded-full" style={{ background: colorOfStar(candidate) }} />
+                        <span className="truncate">{candidate.title}</span>
+                      </button>
+                    </li>
+                  )) : <li className="px-3 py-3 text-[12px] text-muted-foreground/75">{connectQuery ? "No matching stars." : "All other stars are already connected."}</li>}
+                </ul>
+              </PopoverContent>
+            </Popover>
+          </>
+        ) : closeButton}
       </div>
 
-      {/* label picker */}
-      <div className="px-5 pb-3 md:px-6 md:pb-4">
-        {narrow ? <Popover open={labelPickerOpen} onOpenChange={(o) => { setLabelPickerOpen(o); if (!o) setNewLabel(null); }}>
-          <PopoverTrigger asChild>
-            <button className="flex items-center gap-2 rounded-full border border-white/[0.09] bg-white/[0.045] px-3 py-1.5 text-[12px] text-foreground/85 transition-colors hover:bg-white/[0.08]" data-testid="button-current-label">
-              <span className="h-2 w-2 rounded-full" style={{ background: dot, boxShadow: `0 0 8px ${dot}` }} />
-              <span>{label?.name ?? "Unlabeled"}</span>
-              <ChevronDown className="h-3 w-3 text-muted-foreground/70" />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent align="start" side="bottom" className="sky-glass w-64 rounded-2xl border-0 p-2">
-            {labelMenu(() => setLabelPickerOpen(false))}
-          </PopoverContent>
-        </Popover> : (
+      {!narrow && (
+        <>
+          <div className="px-6 pb-4 text-[11.5px] text-muted-foreground/80">
+            Lit {formatStamp(star.createdAt)} · {star.noteCount} {star.noteCount === 1 ? "note" : "notes"}
+          </div>
+          {/* label picker */}
+          <div className="px-6 pb-4">
           <div className="flex flex-wrap items-center gap-1.5">
             <button
               onClick={() => actions.setStarLabel(star.id, null)}
@@ -706,27 +799,31 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
               </div>
             )}
           </div>
-        )}
-      </div>
+          </div>
+        </>
+      )}
 
       {/* tabs */}
-      <div className="flex items-end gap-3 border-b border-white/[0.06] px-5" role="tablist">
-        {(["notes", "tasks"] as const).map((t) => (
-          <button
-            key={t}
-            role="tab"
-            aria-selected={tab === t}
-            onClick={() => onTabChange(t)}
-            className={`relative -mb-px flex min-h-11 items-center gap-1.5 border-b-2 px-1 pb-2.5 pt-2 text-[13px] transition-colors duration-300 ${tab === t ? "text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-            style={tab === t ? { borderColor: dot } : undefined}
-            data-testid={`tab-${t}`}
-          >
-            {t === "notes" ? "Notes" : "Tasks"}
-            {t === "tasks" && starTasks.length > 0 && (
-              <span className="tabular-nums text-muted-foreground/80" data-testid="text-task-count">{doneCount}/{starTasks.length}</span>
-            )}
-          </button>
-        ))}
+      <div className={`flex items-end border-b border-white/[0.06] ${narrow ? "" : "gap-3 px-5"}`} role="tablist">
+        {(["notes", "tasks"] as const).map((t) => {
+          const count = t === "tasks"
+            ? (starTasks.length > 0 ? `${doneCount}/${starTasks.length}` : null)
+            : (narrow && star.noteCount > 0 ? String(star.noteCount) : null);
+          return (
+            <button
+              key={t}
+              role="tab"
+              aria-selected={tab === t}
+              onClick={() => onTabChange(t)}
+              className={`relative -mb-px flex min-h-11 items-center gap-1.5 border-b-2 pb-2.5 pt-2 text-[13px] transition-colors duration-300 ${narrow ? "flex-1 justify-center" : "px-1"} ${tab === t ? "text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+              style={tab === t ? { borderColor: dot } : undefined}
+              data-testid={`tab-${t}`}
+            >
+              {t === "notes" ? "Notes" : "Tasks"}
+              {count && <span className="tabular-nums text-muted-foreground/80" data-testid={`text-${t === "tasks" ? "task" : "note"}-count`}>{count}</span>}
+            </button>
+          );
+        })}
       </div>
 
       {tab === "tasks" ? (
@@ -742,6 +839,9 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
       <>
       {/* notes */}
       <div className="thin-scroll min-h-0 flex-1 overflow-y-auto px-6 py-5">
+        {narrow && (
+          <div className="mb-4 text-[11.5px] text-muted-foreground/70" data-testid="text-star-lit">Lit {formatStampShort(star.createdAt)}</div>
+        )}
         {notesQ.isLoading ? (
           <div className="space-y-5">
             {[0, 1].map((i) => (
@@ -808,8 +908,8 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
       </>
       )}
 
-      {/* footer: constellation + delete */}
-      <div className={`${narrow && tab === "tasks" ? "hidden" : "flex"} flex-wrap items-center gap-3 border-t border-white/[0.06] px-6 py-3.5 text-[12px]`}>
+      {/* footer (desktop): constellation name + delete */}
+      <div className={`${narrow ? "hidden" : "flex"} flex-wrap items-center gap-3 border-t border-white/[0.06] px-6 py-3.5 text-[12px]`}>
         {members.length > 1 ? (
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <span className="shrink-0 text-muted-foreground/70">{members.length} stars ·</span>
