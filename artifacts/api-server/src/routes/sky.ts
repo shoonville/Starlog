@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import {
   db,
+  usersTable,
   labelsTable,
   notesTable,
   starsTable,
@@ -16,6 +17,8 @@ import {
   GetOnThisDayResponse,
   SearchSkyQueryParams,
   SearchSkyResponse,
+  UpdatePreferencesBody,
+  UpdatePreferencesResponse,
 } from "@workspace/api-zod";
 import {
   currentUserId,
@@ -34,16 +37,18 @@ const router: IRouter = Router();
 
 router.get("/sky", requireAuth, async (req, res) => {
   const userId = currentUserId(req);
-  const [labels, stars, connections, constellations, tasks] = await Promise.all([
+  const [labels, stars, connections, constellations, tasks, theme] = await Promise.all([
     loadLabels(userId),
     loadStars(userId),
     loadConnections(userId),
     loadConstellations(userId),
     loadTasks(userId),
+    loadSkyTheme(userId),
   ]);
   res.json(
     GetSkyResponse.parse({
       isDemo: isGuestUser(userId),
+      skyTheme: theme,
       labels,
       stars,
       connections,
@@ -51,6 +56,31 @@ router.get("/sky", requireAuth, async (req, res) => {
       tasks,
     }),
   );
+});
+
+const SKY_THEMES = ["black", "milky-way", "nebula", "midnight", "aurora"] as const;
+type SkyTheme = (typeof SKY_THEMES)[number];
+
+async function loadSkyTheme(userId: string): Promise<SkyTheme> {
+  const [row] = await db
+    .select({ skyTheme: usersTable.skyTheme })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId));
+  const t = row?.skyTheme;
+  return SKY_THEMES.includes(t as SkyTheme) ? (t as SkyTheme) : "black";
+}
+
+router.patch("/preferences", requireAuth, async (req, res) => {
+  const userId = currentUserId(req);
+  const body = UpdatePreferencesBody.parse(req.body);
+  if (body.skyTheme !== undefined) {
+    // Stored as-is; "black" is kept explicitly so a later default change doesn't override a choice.
+    await db
+      .update(usersTable)
+      .set({ skyTheme: body.skyTheme })
+      .where(eq(usersTable.id, userId));
+  }
+  res.json(UpdatePreferencesResponse.parse({ skyTheme: await loadSkyTheme(userId) }));
 });
 
 router.get("/sky/stats", requireAuth, async (req, res) => {

@@ -23,6 +23,8 @@ export const usersTable = pgTable('users', {
   profileImageUrl: varchar('profile_image_url'),
   // Guest accounts created by "Try the demo"; deleted when the demo ends.
   isGuest: boolean('is_guest').notNull().default(false),
+  // Chosen sky backdrop (black, milky-way, nebula, midnight, aurora); null means the default black sky.
+  skyTheme: varchar('sky_theme', { length: 20 }),
   createdAt: timestamp('created_at', { withTimezone: true })
     .notNull()
     .defaultNow(),

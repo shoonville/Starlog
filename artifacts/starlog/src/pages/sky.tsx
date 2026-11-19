@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { useEndDemo, type Sky, type Star, type Task } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { getGetSkyQueryKey, useEndDemo, useUpdatePreferences, type Sky, type SkyTheme, type Star, type Task } from "@workspace/api-client-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { CalendarCheck2, ChartNoAxesGantt, Clock, Download, Link2, ListPlus, Menu, MoreHorizontal, Plus, Search, ZoomIn, ZoomOut } from "lucide-react";
 import SkyCanvas, { type SkyCanvasHandle } from "@/components/sky-canvas";
@@ -19,6 +20,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useSkyActions } from "@/hooks/use-sky-actions";
 import { componentRoots, constellationViews, type ConstellationView } from "@/lib/sky";
 import { toast } from "@/hooks/use-toast";
+import { primeSkyTheme, setSkyTheme, useSkyTheme } from "@/lib/sky-theme";
+import { SkyThemePicker } from "@/components/sky-theme-picker";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 const HOLD_TIP_KEY = "starlog:tip-hold-connect";
@@ -139,6 +142,35 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
   const { logout, login } = useAuth();
   const endDemo = useEndDemo();
   const actions = useSkyActions();
+
+  // Sky theme: an account's saved choice wins; the demo keeps its choice on this device only.
+  const qc = useQueryClient();
+  const themePrimed = useRef(false);
+  if (!themePrimed.current) {
+    themePrimed.current = true;
+    if (!rawSky.isDemo) primeSkyTheme(rawSky.skyTheme);
+  }
+  useEffect(() => { if (!rawSky.isDemo) setSkyTheme(rawSky.skyTheme); }, [rawSky.isDemo, rawSky.skyTheme]);
+  const skyTheme = useSkyTheme();
+  const savePrefs = useUpdatePreferences();
+  const chooseTheme = (theme: SkyTheme) => {
+    if (theme === skyTheme) return;
+    const prev = skyTheme;
+    setSkyTheme(theme);
+    if (rawSky.isDemo) return;
+    const put = (t: SkyTheme) => qc.setQueryData<Sky>(getGetSkyQueryKey(), (old) => (old ? { ...old, skyTheme: t } : old));
+    put(theme);
+    savePrefs.mutate(
+      { data: { skyTheme: theme } },
+      {
+        onError: () => {
+          put(prev);
+          setSkyTheme(prev);
+          toast({ title: "Couldn't change the sky", description: "Please try again." });
+        },
+      },
+    );
+  };
   const canvas = useRef<SkyCanvasHandle>(null);
   const narrow = useNarrow();
 
@@ -628,6 +660,8 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
                         <div className="mb-3 text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/70">Your sky</div>
                         <StatsReadout />
                         <div className="my-4 h-px bg-white/[0.07]" />
+                        <SkyThemePicker value={skyTheme} onChange={chooseTheme} />
+                        <div className="my-4 h-px bg-white/[0.07]" />
                         <div className="mb-2 text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/70">Shortcuts</div>
                         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[12.5px]">
                           {[["N", "New star"], ["A", "Quick add a task"], ["T", "Today"], ["/", "Search"], ["R", "Recent stars"], ["Ctrl + Z", "Undo a delete"], ["Esc", "Close card, exit modes"], ["Double-click", "Star at that spot"], ["Drag halo", "Connect two stars"]].map(([k, v]) => (
@@ -792,6 +826,8 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
               ))}
             </>
           )}
+          <DropdownMenuSeparator className="my-1.5 bg-white/[0.06]" />
+          <SkyThemePicker value={skyTheme} onChange={chooseTheme} className="px-2 pb-2 pt-1.5" />
           <DropdownMenuSeparator className="my-1.5 bg-white/[0.06]" />
           <DropdownMenuItem asChild className={item}>
             <a href={`${base}api/export/markdown`} download="starlog.md" data-testid="link-export-markdown"><Download className="mr-2.5 h-4 w-4" />Export as Markdown</a>

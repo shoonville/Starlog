@@ -220,6 +220,30 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /preferences:
+    patch:
+      operationId: updatePreferences
+      tags: [sky]
+      summary: Save the signed-in user's display preferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PreferencesUpdate"
+      responses:
+        "200":
+          description: Saved preferences
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Preferences"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /sky/stats:
     get:
       operationId: getSkyStats
@@ -786,11 +810,13 @@ components:
 
     Sky:
       type: object
-      required: [isDemo, labels, stars, connections, constellations, tasks]
+      required: [isDemo, skyTheme, labels, stars, connections, constellations, tasks]
       properties:
         isDemo:
           type: boolean
           description: True when the current session is a guest demo sky (not saved to an account)
+        skyTheme:
+          $ref: "#/components/schemas/SkyTheme"
         labels:
           type: array
           items:
@@ -811,6 +837,24 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Task"
+
+    SkyTheme:
+      type: string
+      enum: [black, milky-way, nebula, midnight, aurora]
+      description: Backdrop drawn behind the stars
+
+    Preferences:
+      type: object
+      required: [skyTheme]
+      properties:
+        skyTheme:
+          $ref: "#/components/schemas/SkyTheme"
+
+    PreferencesUpdate:
+      type: object
+      properties:
+        skyTheme:
+          $ref: "#/components/schemas/SkyTheme"
 
     SkyStats:
       type: object

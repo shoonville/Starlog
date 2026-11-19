@@ -1,14 +1,19 @@
 import { useEffect, useRef } from "react";
 import { getSprite, Starfield } from "@/lib/starfield";
 import { hexToRgb } from "@/lib/sky";
+import { getSkyTheme, useSkyTheme } from "@/lib/sky-theme";
 
 /** Decorative sky for landing / loading / error screens. Optionally draws a slow sample constellation. */
 export function NightBackdrop({ constellation = false }: { constellation?: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const field = useRef<Starfield | null>(null);
+  const theme = useSkyTheme();
   useEffect(() => {
     const c = ref.current!;
     const ctx = c.getContext("2d")!;
     const bg = new Starfield(21);
+    bg.setTheme(getSkyTheme(), true);
+    field.current = bg;
     let raf = 0;
     const start = performance.now();
     const pts = [
@@ -61,5 +66,6 @@ export function NightBackdrop({ constellation = false }: { constellation?: boole
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   }, [constellation]);
+  useEffect(() => field.current?.setTheme(theme), [theme]);
   return <canvas ref={ref} className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden />;
 }

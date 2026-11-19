@@ -45,6 +45,8 @@ import type {
   NoteInput,
   NoteUpdate,
   OnThisDayNote,
+  Preferences,
+  PreferencesUpdate,
   SearchResult,
   SearchSkyParams,
   Sky,
@@ -896,6 +898,94 @@ export function useGetSky<TData = Awaited<ReturnType<typeof getSky>>, TError = E
 
 
 
+
+export const getUpdatePreferencesUrl = () => {
+
+
+
+
+  return `/api/preferences`
+}
+
+/**
+ * @summary Save the signed-in user's display preferences
+ */
+export const updatePreferences = async (preferencesUpdate: PreferencesUpdate, options?: Parameters<typeof customFetch>[1]): Promise<Preferences> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Preferences>(getUpdatePreferencesUrl(),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(preferencesUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdatePreferencesMutationKey = () => ['updatePreferences'] as const;
+
+export const getUpdatePreferencesMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePreferences>>, TError,UpdatePreferencesMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updatePreferences>>, TError,UpdatePreferencesMutationVariables, TContext> => {
+
+const mutationKey = getUpdatePreferencesMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updatePreferences>>, UpdatePreferencesMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  updatePreferences(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdatePreferencesMutationResult = NonNullable<Awaited<ReturnType<typeof updatePreferences>>>
+    export type UpdatePreferencesMutationBody = BodyType<PreferencesUpdate>
+    export type UpdatePreferencesMutationError = ErrorType<ErrorEnvelope>
+    export type UpdatePreferencesMutationVariables = {data: BodyType<PreferencesUpdate>}
+
+    /**
+ * @summary Save the signed-in user's display preferences
+ */
+export const useUpdatePreferences = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePreferences>>, TError,UpdatePreferencesMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updatePreferences>>,
+        TError,
+        UpdatePreferencesMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdatePreferencesMutationOptions(options));
+    }
 
 export const getGetSkyStatsUrl = () => {
 

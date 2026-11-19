@@ -1,4 +1,8 @@
+import type { SkyTheme } from "@workspace/api-client-react";
 import { hexToRgb } from "./sky";
+import { Backdrop, backdropFor, skyShouldBeStill } from "./sky-backdrop";
+
+const THEME_FADE_MS = 900;
 
 type Dot = { x: number; y: number; r: number; a: number; c: string };
 type Twinkler = Dot & { sp: number; ph: number };
@@ -41,7 +45,7 @@ function dot(r: () => number, far: boolean): Dot {
 }
 
 /**
- * Decorative starfield on a true-black sky.
+ * Decorative starfield over the chosen sky theme (true black by default).
  * Dots are rendered once into offscreen tiles (one per depth layer) and blitted with a
  * parallax offset each frame; only a handful of slow twinklers are drawn per frame.
  * Positions are normalized (0..1) so the field keeps its layout across resizes.
@@ -52,6 +56,18 @@ export class Starfield {
   private w = 0;
   private h = 0;
   private dpr = 0;
+  private backdrop: Backdrop = backdropFor("black");
+  /** The previous theme while the new one fades in. */
+  private fadeFrom: Backdrop | null = null;
+  private fadeStart = 0;
+
+  /** Switches the sky behind the stars, crossfading unless `instant`. */
+  setTheme(theme: SkyTheme, instant = false) {
+    if (theme === this.backdrop.theme) return;
+    this.fadeFrom = instant ? null : this.backdrop;
+    this.fadeStart = performance.now();
+    this.backdrop = backdropFor(theme);
+  }
 
   constructor(seed = 7) {
     const r = rng(seed);
@@ -107,17 +123,26 @@ export class Starfield {
     }
   }
 
-  /** Paints black sky + starfield. offX/offY are accumulated screen-space pan in CSS px. */
+  /** Paints the sky theme + starfield. offX/offY are accumulated screen-space pan in CSS px. */
   draw(ctx: CanvasRenderingContext2D, w: number, h: number, dpr: number, t: number, offX = 0, offY = 0) {
     if (w <= 0 || h <= 0) return;
     if (w !== this.w || h !== this.h || dpr !== this.dpr) this.build(w, h, dpr);
     const W = Math.round(w * dpr);
     const H = Math.round(h * dpr);
+    const still = skyShouldBeStill();
+    let k = 1;
+    if (this.fadeFrom) {
+      const p = (performance.now() - this.fadeStart) / THEME_FADE_MS;
+      if (p >= 1) this.fadeFrom = null;
+      else {
+        k = p * p * (3 - 2 * p);
+        this.fadeFrom.draw(ctx, w, h, dpr, offX, offY, t, 1, still);
+      }
+    }
+    this.backdrop.draw(ctx, w, h, dpr, offX, offY, t, k, still);
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1;
-    ctx.fillStyle = "#000000";
-    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     for (const layer of this.layers) {
       const tile = layer.tile!;
       // snap to whole device pixels so tiny dots stay crisp while panning

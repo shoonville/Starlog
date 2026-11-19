@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import type { Connection, Label, Star } from "@workspace/api-client-react";
 import { DEFAULT_STAR, MAX_ZOOM, MIN_ZOOM, hexToRgb, lighten, starRadius, type ConstellationView } from "@/lib/sky";
 import { getSprite, Starfield } from "@/lib/starfield";
+import { useSkyTheme } from "@/lib/sky-theme";
 
 export type SkyCanvasHandle = {
   flyTo: (x: number, y: number, opts?: { dx?: number; dy?: number; zoom?: number }) => void;
@@ -148,6 +149,14 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
     /** Eased task-progress values per star. */
     ring: new Map<number, number>(),
   });
+
+  // The sky theme: set at once on mount, crossfaded on later changes.
+  const theme = useSkyTheme();
+  const themeSet = useRef(false);
+  useEffect(() => {
+    S.current.bg.setTheme(theme, !themeSet.current);
+    themeSet.current = true;
+  }, [theme]);
 
   useImperativeHandle(ref, () => ({
     flyTo(x, y, opts) {

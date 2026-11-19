@@ -61,6 +61,20 @@ export interface DemoSession {
   isDemo: boolean;
 }
 
+/**
+ * Backdrop drawn behind the stars
+ */
+export type SkyTheme = typeof SkyTheme[keyof typeof SkyTheme];
+
+
+export const SkyTheme = {
+  black: 'black',
+  'milky-way': 'milky-way',
+  nebula: 'nebula',
+  midnight: 'midnight',
+  aurora: 'aurora',
+} as const;
+
 export interface Label {
   id: number;
   name: string;
@@ -152,11 +166,20 @@ export interface Task {
 export interface Sky {
   /** True when the current session is a guest demo sky (not saved to an account) */
   isDemo: boolean;
+  skyTheme: SkyTheme;
   labels: Label[];
   stars: Star[];
   connections: Connection[];
   constellations: Constellation[];
   tasks: Task[];
+}
+
+export interface Preferences {
+  skyTheme: SkyTheme;
+}
+
+export interface PreferencesUpdate {
+  skyTheme?: SkyTheme;
 }
 
 export interface SkyStats {

@@ -135,6 +135,7 @@ export const EndDemoResponse = zod.object({
  */
 export const GetSkyResponse = zod.object({
   "isDemo": zod.boolean().describe('True when the current session is a guest demo sky (not saved to an account)'),
+  "skyTheme": zod.enum(['black', 'milky-way', 'nebula', 'midnight', 'aurora']).describe('Backdrop drawn behind the stars'),
   "labels": zod.array(zod.object({
   "id": zod.number().int(),
   "name": zod.string(),
@@ -177,6 +178,18 @@ export const GetSkyResponse = zod.object({
   "position": zod.number().int(),
   "createdAt": zod.coerce.date()
 }))
+})
+
+
+/**
+ * @summary Save the signed-in user's display preferences
+ */
+export const UpdatePreferencesBody = zod.object({
+  "skyTheme": zod.enum(['black', 'milky-way', 'nebula', 'midnight', 'aurora']).optional().describe('Backdrop drawn behind the stars')
+})
+
+export const UpdatePreferencesResponse = zod.object({
+  "skyTheme": zod.enum(['black', 'milky-way', 'nebula', 'midnight', 'aurora']).describe('Backdrop drawn behind the stars')
 })
 
 
