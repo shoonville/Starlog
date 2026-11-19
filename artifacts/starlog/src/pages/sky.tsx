@@ -715,6 +715,15 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
               onClose={() => setTodayOpen(false)}
               ensureStar={ensureStar}
               tip={todayTip}
+              onThisDay={!timelineOpen ? (
+                <OnThisDay
+                  hiddenNoteIds={hiddenNoteIds}
+                  onOpen={(n) => {
+                    setFocusNote({ starId: n.starId, noteId: n.noteId });
+                    focusStar(n.starId);
+                  }}
+                />
+              ) : null}
               handle={
                 <div
                   className="flex h-6 w-full shrink-0 touch-none items-center justify-center"
@@ -735,7 +744,23 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
             initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} transition={{ duration: 0.55, ease: EASE }}
             className="absolute left-6 top-20 z-20 flex max-h-[calc(100dvh-12rem)] min-h-[14rem] w-[22rem] flex-col"
           >
-            <TodayPanel sky={sky} actions={actions} onPickTask={pickTodayTask} onClose={() => setTodayOpen(false)} ensureStar={ensureStar} tip={todayTip} />
+            <TodayPanel
+              sky={sky}
+              actions={actions}
+              onPickTask={pickTodayTask}
+              onClose={() => setTodayOpen(false)}
+              ensureStar={ensureStar}
+              tip={todayTip}
+              onThisDay={!timelineOpen ? (
+                <OnThisDay
+                  hiddenNoteIds={hiddenNoteIds}
+                  onOpen={(n) => {
+                    setFocusNote({ starId: n.starId, noteId: n.noteId });
+                    focusStar(n.starId);
+                  }}
+                />
+              ) : null}
+            />
           </motion.div>
         ))}
       </AnimatePresence>

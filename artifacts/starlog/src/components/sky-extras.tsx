@@ -111,7 +111,7 @@ export function OnThisDay({ hiddenNoteIds, onOpen }: { hiddenNoteIds: Set<number
     <button
       onClick={notes.length === 1 ? () => onOpen(notes[0]!) : undefined}
       title={notes.length === 1 ? `${agoLabel(notes[0]!.createdAt)} · ${notes[0]!.starTitle}` : undefined}
-      className="sky-pill day-glow rise flex items-center gap-2 rounded-full py-1.5 pl-3 pr-3.5 text-[12px] text-foreground/90 transition-colors hover:text-foreground"
+      className="sky-pill day-glow rise mt-2 flex items-center gap-2 rounded-full py-1.5 pl-3 pr-3.5 text-[12px] text-foreground/90 transition-colors hover:text-foreground"
       data-testid="button-on-this-day"
     >
       <span className="h-1.5 w-1.5 rounded-full bg-[#f4e4c4] shadow-[0_0_10px_2px_rgba(244,228,196,0.6)] breathe" />
@@ -123,7 +123,7 @@ export function OnThisDay({ hiddenNoteIds, onOpen }: { hiddenNoteIds: Set<number
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{button}</PopoverTrigger>
-      <PopoverContent side="bottom" align="end" className="sky-glass mt-2 w-80 rounded-2xl border-0 p-2">
+      <PopoverContent side="bottom" align="start" className="sky-glass mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-2xl border-0 p-2">
         <div className="px-2.5 pb-1.5 pt-1.5 text-[10.5px] uppercase tracking-[0.14em] text-muted-foreground/70">
           Written on {format(new Date(), "MMMM d")}
         </div>

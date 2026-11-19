@@ -15,7 +15,7 @@ export function dueTasks(tasks: Task[], today = todayStr()) {
 }
 
 export function TodayPanel({
-  sky, actions, onPickTask, onClose, ensureStar, handle, tip,
+  sky, actions, onPickTask, onClose, ensureStar, handle, tip, onThisDay,
 }: {
   sky: Sky;
   actions: SkyActions;
@@ -26,6 +26,8 @@ export function TodayPanel({
   handle?: React.ReactNode;
   /** A one-time tip shown under the header. */
   tip?: React.ReactNode;
+  /** On This Day entry point, shown beside the date heading. */
+  onThisDay?: React.ReactNode;
 }) {
   const today = todayStr();
   // Tasks checked off while the panel is open stay in view (struck through) until it closes.
@@ -72,6 +74,7 @@ export function TodayPanel({
         <div className="min-w-0 flex-1">
           <h2 className="text-[17px] font-medium tracking-[-0.01em]">Today</h2>
           <p className="text-[12px] text-muted-foreground/80">{format(new Date(), "EEEE, MMMM d")}</p>
+          {onThisDay}
         </div>
         <button onClick={onClose} className="-mr-2 flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground hover:bg-white/5 hover:text-foreground md:h-9 md:w-9" aria-label="Close" data-testid="button-close-today">
           <X className="h-4 w-4" />
