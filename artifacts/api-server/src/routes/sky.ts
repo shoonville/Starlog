@@ -37,18 +37,19 @@ const router: IRouter = Router();
 
 router.get("/sky", requireAuth, async (req, res) => {
   const userId = currentUserId(req);
-  const [labels, stars, connections, constellations, tasks, theme] = await Promise.all([
+  const [labels, stars, connections, constellations, tasks, prefs] = await Promise.all([
     loadLabels(userId),
     loadStars(userId),
     loadConnections(userId),
     loadConstellations(userId),
     loadTasks(userId),
-    loadSkyTheme(userId),
+    loadPreferences(userId),
   ]);
   res.json(
     GetSkyResponse.parse({
       isDemo: isGuestUser(userId),
-      skyTheme: theme,
+      skyTheme: prefs.skyTheme,
+      seenTips: prefs.seenTips,
       labels,
       stars,
       connections,
@@ -61,26 +62,35 @@ router.get("/sky", requireAuth, async (req, res) => {
 const SKY_THEMES = ["black", "milky-way", "nebula", "midnight", "aurora"] as const;
 type SkyTheme = (typeof SKY_THEMES)[number];
 
-async function loadSkyTheme(userId: string): Promise<SkyTheme> {
+const TIP_IDS = ["welcome", "star-card", "today"] as const;
+type TipId = (typeof TIP_IDS)[number];
+
+async function loadPreferences(userId: string): Promise<{ skyTheme: SkyTheme; seenTips: TipId[] }> {
   const [row] = await db
-    .select({ skyTheme: usersTable.skyTheme })
+    .select({ skyTheme: usersTable.skyTheme, seenTips: usersTable.seenTips })
     .from(usersTable)
     .where(eq(usersTable.id, userId));
   const t = row?.skyTheme;
-  return SKY_THEMES.includes(t as SkyTheme) ? (t as SkyTheme) : "black";
+  return {
+    skyTheme: SKY_THEMES.includes(t as SkyTheme) ? (t as SkyTheme) : "black",
+    seenTips: (row?.seenTips ?? []).filter((id): id is TipId => TIP_IDS.includes(id as TipId)),
+  };
 }
 
 router.patch("/preferences", requireAuth, async (req, res) => {
   const userId = currentUserId(req);
   const body = UpdatePreferencesBody.parse(req.body);
-  if (body.skyTheme !== undefined) {
-    // Stored as-is; "black" is kept explicitly so a later default change doesn't override a choice.
-    await db
-      .update(usersTable)
-      .set({ skyTheme: body.skyTheme })
-      .where(eq(usersTable.id, userId));
+  const set: Partial<typeof usersTable.$inferInsert> = {};
+  // Stored as-is; "black" is kept explicitly so a later default change doesn't override a choice.
+  if (body.skyTheme !== undefined) set.skyTheme = body.skyTheme;
+  if (body.seenTips?.length) {
+    const current = (await loadPreferences(userId)).seenTips;
+    set.seenTips = [...new Set([...current, ...body.seenTips])];
   }
-  res.json(UpdatePreferencesResponse.parse({ skyTheme: await loadSkyTheme(userId) }));
+  if (Object.keys(set).length) {
+    await db.update(usersTable).set(set).where(eq(usersTable.id, userId));
+  }
+  res.json(UpdatePreferencesResponse.parse(await loadPreferences(userId)));
 });
 
 router.get("/sky/stats", requireAuth, async (req, res) => {

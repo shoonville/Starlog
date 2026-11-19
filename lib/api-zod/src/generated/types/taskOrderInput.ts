@@ -7,6 +7,9 @@
  */
 
 export interface TaskOrderInput {
-  /** @nullable */
+  /**
+     * @maxItems 2000
+     * @nullable
+     */
   order: number[] | null;
 }

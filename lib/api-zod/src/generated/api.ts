@@ -136,6 +136,7 @@ export const EndDemoResponse = zod.object({
 export const GetSkyResponse = zod.object({
   "isDemo": zod.boolean().describe('True when the current session is a guest demo sky (not saved to an account)'),
   "skyTheme": zod.enum(['black', 'milky-way', 'nebula', 'midnight', 'aurora']).describe('Backdrop drawn behind the stars'),
+  "seenTips": zod.array(zod.enum(['welcome', 'star-card', 'today']).describe('The welcome tour or a one-time tip')).describe('Welcome tour and one-time tips this account has already seen'),
   "labels": zod.array(zod.object({
   "id": zod.number().int(),
   "name": zod.string(),
@@ -184,12 +185,18 @@ export const GetSkyResponse = zod.object({
 /**
  * @summary Save the signed-in user's display preferences
  */
+export const updatePreferencesBodySeenTipsMax = 10;
+
+
+
 export const UpdatePreferencesBody = zod.object({
-  "skyTheme": zod.enum(['black', 'milky-way', 'nebula', 'midnight', 'aurora']).optional().describe('Backdrop drawn behind the stars')
+  "skyTheme": zod.enum(['black', 'milky-way', 'nebula', 'midnight', 'aurora']).optional().describe('Backdrop drawn behind the stars'),
+  "seenTips": zod.array(zod.enum(['welcome', 'star-card', 'today']).describe('The welcome tour or a one-time tip')).max(updatePreferencesBodySeenTipsMax).optional().describe('Tips to mark as seen (added to the ones already seen)')
 })
 
 export const UpdatePreferencesResponse = zod.object({
-  "skyTheme": zod.enum(['black', 'milky-way', 'nebula', 'midnight', 'aurora']).describe('Backdrop drawn behind the stars')
+  "skyTheme": zod.enum(['black', 'milky-way', 'nebula', 'midnight', 'aurora']).describe('Backdrop drawn behind the stars'),
+  "seenTips": zod.array(zod.enum(['welcome', 'star-card', 'today']).describe('The welcome tour or a one-time tip'))
 })
 
 
@@ -416,8 +423,12 @@ export const SetTaskOrderParams = zod.object({
   "starId": zod.coerce.number().int()
 })
 
+export const setTaskOrderBodyOrderMax = 2000;
+
+
+
 export const SetTaskOrderBody = zod.object({
-  "order": zod.array(zod.number().int()).nullable()
+  "order": zod.array(zod.number().int()).max(setTaskOrderBodyOrderMax).nullable()
 })
 
 export const SetTaskOrderResponse = zod.void()

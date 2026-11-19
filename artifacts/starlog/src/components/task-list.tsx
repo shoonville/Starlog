@@ -5,6 +5,7 @@ import { ArrowDownWideNarrow, CalendarDays, Check, ChevronRight, Repeat2, Trash2
 import type { SkyActions } from "@/hooks/use-sky-actions";
 import { REPEAT_LABEL, formatDue, isOverdue, orderedOpenTasks, parseQuickAdd, todayStr } from "@/lib/tasks";
 import { hexToRgb } from "@/lib/sky";
+import { draftKeys, useDraft } from "@/lib/save-safety";
 import { highlight, matchesQuery } from "@/lib/note-format";
 
 export const PRIORITY_DOT = "#FF8A4C";
@@ -321,7 +322,7 @@ export function TaskList({
 
 /** One-line task input at the bottom of the Tasks tab. Understands dates like "Friday" or "tomorrow". */
 export function TaskComposer({ starId, actions }: { starId: number; actions: SkyActions }) {
-  const [text, setText] = useState("");
+  const [text, setText] = useDraft(draftKeys.task(starId));
   const parsed = useMemo(() => (text.trim() ? parseQuickAdd(text) : null), [text]);
   const today = todayStr();
   const submit = () => {

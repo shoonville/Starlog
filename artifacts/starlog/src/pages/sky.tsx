@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetSkyQueryKey, useEndDemo, useUpdatePreferences, type Sky, type SkyTheme, type Star, type Task } from "@workspace/api-client-react";
 import { useAuth } from "@workspace/replit-auth-web";
-import { CalendarCheck2, ChartNoAxesGantt, Clock, Download, Link2, ListPlus, Menu, MoreHorizontal, Plus, Search, ZoomIn, ZoomOut } from "lucide-react";
+import { CalendarCheck2, ChartNoAxesGantt, CircleHelp, Clock, Download, Link2, ListPlus, Menu, MoreHorizontal, Plus, Search, ZoomIn, ZoomOut } from "lucide-react";
 import SkyCanvas, { type SkyCanvasHandle } from "@/components/sky-canvas";
 import JournalCard, { type CardTab } from "@/components/journal-card";
 import { BottomSheet, useKeyboardInset, useSheetDrag, type SheetHeight } from "@/components/bottom-sheet";
@@ -12,7 +12,7 @@ import { QuickAdd } from "@/components/quick-add";
 import { findStarByTitle, isOverdue, todayStr } from "@/lib/tasks";
 import { CompactLegend, Legend, SearchPanel, StatsReadout, Timeline } from "@/components/sky-overlays";
 import { Wordmark } from "@/components/wordmark";
-import { DevPanel, OnThisDay, RecentPanel, UndoBar } from "@/components/sky-extras";
+import { DevPanel, OnThisDay, RecentPanel, SaveStatus, UndoBar } from "@/components/sky-extras";
 import { undoDelete, usePendingDeletes } from "@/lib/pending-deletes";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -22,6 +22,8 @@ import { componentRoots, constellationViews, type ConstellationView } from "@/li
 import { toast } from "@/hooks/use-toast";
 import { primeSkyTheme, setSkyTheme, useSkyTheme } from "@/lib/sky-theme";
 import { SkyThemePicker } from "@/components/sky-theme-picker";
+import { OnceTip, Welcome } from "@/components/welcome";
+import { useTips } from "@/lib/onboarding";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 const HOLD_TIP_KEY = "starlog:tip-hold-connect";
@@ -152,6 +154,21 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
   }
   useEffect(() => { if (!rawSky.isDemo) setSkyTheme(rawSky.skyTheme); }, [rawSky.isDemo, rawSky.skyTheme]);
   const skyTheme = useSkyTheme();
+
+  // Welcome tour (once per device or account; "How it works" replays it) and one-time tips.
+  const tips = useTips(rawSky);
+  const [welcomeOpen, setWelcomeOpen] = useState(() => !tips.seen("welcome"));
+  const welcomeRef = useRef(welcomeOpen);
+  welcomeRef.current = welcomeOpen;
+  const finishWelcome = () => { setWelcomeOpen(false); tips.markSeen("welcome"); };
+  const [menuOpen, setMenuOpen] = useState(false);
+  const showHowItWorks = () => { setMenuOpen(false); window.setTimeout(() => setWelcomeOpen(true), 120); };
+  const starCardTip = tips.seen("star-card") ? null : (
+    <OnceTip text="Notes and tasks live here" onDismiss={() => tips.markSeen("star-card")} className="left-1/2 top-full mt-2.5 -translate-x-1/2" testId="tip-star-card" />
+  );
+  const todayTip = tips.seen("today") ? null : (
+    <OnceTip text="Everything due today, from every star" onDismiss={() => tips.markSeen("today")} className="left-5 top-full mt-1 md:left-6 [&>span]:left-6" testId="tip-today" />
+  );
   const savePrefs = useUpdatePreferences();
   const chooseTheme = (theme: SkyTheme) => {
     if (theme === skyTheme) return;
@@ -372,6 +389,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
   keyRef.current = { exitModes, createAtCenter };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (welcomeRef.current) return;
       wake();
       const t = e.target as HTMLElement;
       const typing = t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable;
@@ -523,10 +541,11 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
         {empty && !timelineOpen && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: { duration: 1.4, ease: EASE } }} transition={{ duration: 1.6, ease: EASE, delay: 0.4 }}
             className="pointer-events-none absolute inset-0 flex items-center justify-center px-8">
-            <div className="text-center">
+            <div className="text-center" data-testid="empty-sky">
               <div className="mx-auto mb-5 h-1.5 w-1.5 rounded-full bg-[#f4e4c4] shadow-[0_0_20px_5px_rgba(244,228,196,0.3)] breathe" />
-              <p className="text-[14.5px] font-light tracking-[0.01em] text-foreground/70" data-testid="text-first-star-hint">
-                {narrow ? "Press and hold anywhere to place your first star." : "Double-click anywhere to place your first star."}
+              <p className="text-[17px] font-light tracking-[-0.005em] text-foreground/85">Your sky is empty.</p>
+              <p className="mt-1.5 text-[14px] font-light tracking-[0.01em] text-foreground/60" data-testid="text-first-star-hint">
+                {narrow ? "Tap + to light your first star." : "Click New Star to light your first star."}
               </p>
             </div>
           </motion.div>
@@ -588,7 +607,10 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
 
       {/* undo */}
       <div className="pointer-events-auto absolute bottom-[4.75rem] left-1/2 z-30 -translate-x-1/2 md:bottom-[5.25rem]">
-        <UndoBar />
+        <div className="flex flex-col items-center gap-2">
+          {!narrow && <SaveStatus />}
+          <UndoBar />
+        </div>
       </div>
 
       {/* timeline or toolbar */}
@@ -605,8 +627,8 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
                   <>
                     <ToolButton label="Today" active={todayOpen} onClick={openToday} testId="button-today" badge={todayBadge}><CalendarCheck2 className="h-[18px] w-[18px]" /></ToolButton>
                     <ToolButton label="Search" active={searchOpen} onClick={() => setSearchOpen((v) => !v)} testId="button-search"><Search className="h-[18px] w-[18px]" /></ToolButton>
-                    <TouchHint label="Add a task">
-                      <button onClick={openQuickAdd} aria-label="Add a task" className="mx-1 flex h-11 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground transition-all duration-500 soft-ease active:scale-95" data-testid="button-quick-add">
+                    <TouchHint label={empty ? "New star" : "Add a task"}>
+                      <button onClick={empty ? createAtCenter : openQuickAdd} aria-label={empty ? "New star" : "Add a task"} className="mx-1 flex h-11 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground transition-all duration-500 soft-ease active:scale-95" data-testid="button-quick-add">
                         <Plus className="h-5 w-5" />
                       </button>
                     </TouchHint>
@@ -648,7 +670,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
                     </DropdownMenu>
                     </TouchHint>
                     <TouchHint label="Your sky and shortcuts">
-                    <Popover>
+                    <Popover open={menuOpen} onOpenChange={setMenuOpen}>
                       <Tip label="Your sky and shortcuts">
                       <PopoverTrigger asChild>
                         <button aria-label="Your sky and shortcuts" className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.07] hover:text-foreground" data-testid="button-menu">
@@ -668,6 +690,9 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
                             <div key={k} className="contents"><dt className="font-medium text-foreground/90">{k}</dt><dd className="text-muted-foreground">{v}</dd></div>
                           ))}
                         </dl>
+                        <button onClick={showHowItWorks} className="mt-3.5 flex items-center gap-2 text-[12.5px] text-muted-foreground transition-colors hover:text-foreground" data-testid="button-how-it-works">
+                          <CircleHelp className="h-3.5 w-3.5" /> How it works
+                        </button>
                         <div className="my-4 h-px bg-white/[0.07]" />
                         {sky.isDemo ? (
                           <div className="flex gap-2">
@@ -698,6 +723,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
               onPickTask={pickTodayTask}
               onClose={() => setTodayOpen(false)}
               ensureStar={ensureStar}
+              tip={todayTip}
               handle={
                 <div
                   className="flex h-6 w-full shrink-0 touch-none items-center justify-center"
@@ -718,7 +744,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
             initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} transition={{ duration: 0.55, ease: EASE }}
             className="absolute left-6 top-20 z-20 flex max-h-[calc(100dvh-12rem)] min-h-[14rem] w-[22rem] flex-col"
           >
-            <TodayPanel sky={sky} actions={actions} onPickTask={pickTodayTask} onClose={() => setTodayOpen(false)} ensureStar={ensureStar} />
+            <TodayPanel sky={sky} actions={actions} onPickTask={pickTodayTask} onClose={() => setTodayOpen(false)} ensureStar={ensureStar} tip={todayTip} />
           </motion.div>
         ))}
       </AnimatePresence>
@@ -772,6 +798,16 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
           </motion.div>
         ))}
       </AnimatePresence>
+
+      {/* phone: save problems show at the top, above any open sheet */}
+      {narrow && (
+        <div className="pointer-events-none fixed left-1/2 top-[calc(env(safe-area-inset-top)+0.6rem)] z-[60] -translate-x-1/2">
+          <SaveStatus />
+        </div>
+      )}
+
+      {/* welcome tour */}
+      <AnimatePresence>{welcomeOpen && <Welcome key="welcome" onDone={finishWelcome} />}</AnimatePresence>
     </div>
   );
 
@@ -792,6 +828,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
         onTabChange={setCardTab}
         onSwitchStar={(id) => { setFocusNote(null); focusStar(id, { keepTab: true }); }}
         onStarMoved={(st) => focusStar(st.id, { keepTab: true, star: st })}
+        tip={starCardTip}
         constellations={cviews}
         onPickConstellation={(cv: ConstellationView) => { setFocusNote(null); if (cv.members[0] != null) focusStar(cv.members[0]); }}
       />
@@ -835,6 +872,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
           <DropdownMenuItem asChild className={item}>
             <a href={`${base}api/export/json`} download="starlog.json" data-testid="link-export-json"><Download className="mr-2.5 h-4 w-4" />Export as JSON</a>
           </DropdownMenuItem>
+          <DropdownMenuItem className={item} onSelect={showHowItWorks} data-testid="menu-how-it-works"><CircleHelp className="mr-2.5 h-4 w-4" />How it works</DropdownMenuItem>
           <DropdownMenuSeparator className="my-1.5 bg-white/[0.06]" />
           {sky.isDemo ? (
             <>

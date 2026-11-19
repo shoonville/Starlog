@@ -810,13 +810,18 @@ components:
 
     Sky:
       type: object
-      required: [isDemo, skyTheme, labels, stars, connections, constellations, tasks]
+      required: [isDemo, skyTheme, seenTips, labels, stars, connections, constellations, tasks]
       properties:
         isDemo:
           type: boolean
           description: True when the current session is a guest demo sky (not saved to an account)
         skyTheme:
           $ref: "#/components/schemas/SkyTheme"
+        seenTips:
+          type: array
+          items:
+            $ref: "#/components/schemas/TipId"
+          description: Welcome tour and one-time tips this account has already seen
         labels:
           type: array
           items:
@@ -843,18 +848,33 @@ components:
       enum: [black, milky-way, nebula, midnight, aurora]
       description: Backdrop drawn behind the stars
 
+    TipId:
+      type: string
+      enum: [welcome, star-card, today]
+      description: The welcome tour or a one-time tip
+
     Preferences:
       type: object
-      required: [skyTheme]
+      required: [skyTheme, seenTips]
       properties:
         skyTheme:
           $ref: "#/components/schemas/SkyTheme"
+        seenTips:
+          type: array
+          items:
+            $ref: "#/components/schemas/TipId"
 
     PreferencesUpdate:
       type: object
       properties:
         skyTheme:
           $ref: "#/components/schemas/SkyTheme"
+        seenTips:
+          type: array
+          maxItems: 10
+          description: Tips to mark as seen (added to the ones already seen)
+          items:
+            $ref: "#/components/schemas/TipId"
 
     SkyStats:
       type: object
@@ -1057,6 +1077,7 @@ components:
       properties:
         order:
           type: [array, "null"]
+          maxItems: 2000
           items: { type: integer }
 
     NoteInput:

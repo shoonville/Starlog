@@ -75,6 +75,18 @@ export const SkyTheme = {
   aurora: 'aurora',
 } as const;
 
+/**
+ * The welcome tour or a one-time tip
+ */
+export type TipId = typeof TipId[keyof typeof TipId];
+
+
+export const TipId = {
+  welcome: 'welcome',
+  'star-card': 'star-card',
+  today: 'today',
+} as const;
+
 export interface Label {
   id: number;
   name: string;
@@ -167,6 +179,8 @@ export interface Sky {
   /** True when the current session is a guest demo sky (not saved to an account) */
   isDemo: boolean;
   skyTheme: SkyTheme;
+  /** Welcome tour and one-time tips this account has already seen */
+  seenTips: TipId[];
   labels: Label[];
   stars: Star[];
   connections: Connection[];
@@ -176,10 +190,16 @@ export interface Sky {
 
 export interface Preferences {
   skyTheme: SkyTheme;
+  seenTips: TipId[];
 }
 
 export interface PreferencesUpdate {
   skyTheme?: SkyTheme;
+  /**
+     * Tips to mark as seen (added to the ones already seen)
+     * @maxItems 10
+     */
+  seenTips?: TipId[];
 }
 
 export interface SkyStats {
@@ -335,7 +355,10 @@ export interface TaskUpdateResult {
 }
 
 export interface TaskOrderInput {
-  /** @nullable */
+  /**
+     * @maxItems 2000
+     * @nullable
+     */
   order: number[] | null;
 }
 

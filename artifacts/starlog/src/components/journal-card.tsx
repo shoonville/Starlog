@@ -1,3 +1,4 @@
+import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -25,6 +26,7 @@ import {
 import { DEFAULT_STAR, PALETTE, constellationTint, formatStamp, formatStampShort, type ConstellationView } from "@/lib/sky";
 import { TaskComposer, TaskList } from "@/components/task-list";
 import { FormattedNote, applyFormat, formatKeyDown, matchesQuery, plainNote, wordCount, type FormatKind } from "@/lib/note-format";
+import { clearDraftIfSent, draftKeys, readDraft, useDraft, writeDraft } from "@/lib/save-safety";
 import { formatDue, orderedOpenTasks } from "@/lib/tasks";
 import { toast } from "@/hooks/use-toast";
 import { scheduleDelete, usePendingDeletes } from "@/lib/pending-deletes";
@@ -82,12 +84,13 @@ function NoteRow({ note, focused, onDelete, onSaved, onTogglePin, query }: {
   query?: string;
 }) {
   const qc = useQueryClient();
-  const update = useUpdateNote();
+  // Edits are backed up until the server has them, so a failed save or a reload never loses them.
+  const update = useUpdateNote({ mutation: { onSuccess: (_n, v) => { if (v.data.body != null) clearDraftIfSent(draftKeys.noteEdit(v.noteId), v.data.body); } } });
   const mutateRef = useRef(update.mutate);
   mutateRef.current = update.mutate;
   const savedRef = useRef(onSaved);
   savedRef.current = onSaved;
-  const [body, setBody] = useState(note.body);
+  const [body, setBody] = useState(() => readDraft(draftKeys.noteEdit(note.id)) || note.body);
   const [editing, setEditing] = useState(false);
   const [saved, setSaved] = useState(false);
   const timer = useRef<number>(0);
@@ -132,10 +135,17 @@ function NoteRow({ note, focused, onDelete, onSaved, onTogglePin, query }: {
       },
     );
   };
-  useEffect(() => () => { clearTimeout(timer.current); flush(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    // An edit that never reached the server: send it again.
+    const backup = readDraft(draftKeys.noteEdit(note.id));
+    if (backup && backup !== note.body) { pending.current = backup; flush(); }
+    else if (backup) writeDraft(draftKeys.noteEdit(note.id), "");
+    return () => { clearTimeout(timer.current); flush(); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const change = (v: string) => {
     setBody(v);
+    writeDraft(draftKeys.noteEdit(note.id), v);
     pending.current = v;
     clearTimeout(timer.current);
     timer.current = window.setTimeout(flush, 700);
@@ -276,6 +286,8 @@ type Props = {
   onPickConstellation: (cv: ConstellationView) => void;
   /** After "Move to constellation" places the star in its new home, so the view can follow it. */
   onStarMoved: (star: Star) => void;
+  /** A one-time tip shown just under the Notes / Tasks tabs. */
+  tip?: React.ReactNode;
 };
 
 export type CardTab = "notes" | "tasks";
@@ -432,11 +444,11 @@ function ConstellationSwitcher({ name, tint, all, currentId, tintOf, onPick, onR
   );
 }
 
-export default function JournalCard({ star, sky, roots, actions, onClose, onStartConnect, sheetHeight, onSheetHeightChange, narrow, focusNoteId, tab, onTabChange, onSwitchStar, constellations, onPickConstellation, onStarMoved }: Props) {
+export default function JournalCard({ star, sky, roots, actions, onClose, onStartConnect, sheetHeight, onSheetHeightChange, narrow, focusNoteId, tab, onTabChange, onSwitchStar, constellations, onPickConstellation, onStarMoved, tip }: Props) {
   const qc = useQueryClient();
   const notesKey = getListStarNotesQueryKey(star.id);
   const notesQ = useListStarNotes(star.id, { query: { enabled: !!star.id, queryKey: notesKey } });
-  const createNote = useCreateNote();
+  const createNote = useCreateNote({ mutation: { onSuccess: (_n, v) => clearDraftIfSent(draftKeys.note(v.starId), v.data.body) } });
 
   const [title, setTitle] = useState(star.title);
   const titleTimer = useRef<number>(0);
@@ -455,8 +467,9 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
     return () => { clearTimeout(titleTimer.current); flushTitle(id); };
   }, [star.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const [draft, setDraft] = useState("");
-  const [composerOpen, setComposerOpen] = useState(() => !window.matchMedia("(max-width: 767px)").matches);
+  // The note being written is kept as a draft for this star until it's saved.
+  const [draft, setDraft] = useDraft(draftKeys.note(star.id));
+  const [composerOpen, setComposerOpen] = useState(() => !window.matchMedia("(max-width: 767px)").matches || !!readDraft(draftKeys.note(star.id)));
   const composerExpanded = !narrow || composerOpen;
   const draftRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => autosize(draftRef.current), [draft]);
@@ -1054,7 +1067,8 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
       )}
 
       {/* tabs */}
-      <div className={`flex items-end border-b border-white/[0.06] ${narrow ? "" : "gap-3 px-5"}`} role="tablist">
+      <div className={`relative flex items-end border-b border-white/[0.06] ${narrow ? "" : "gap-3 px-5"}`} role="tablist">
+        {tip}
         {(["notes", "tasks"] as const).map((t) => {
           const count = t === "tasks"
             ? (starTasks.length > 0 ? `${doneCount}/${starTasks.length}` : null)

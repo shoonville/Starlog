@@ -6,7 +6,13 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { SkyTheme } from './skyTheme';
+import type { TipId } from './tipId';
 
 export interface PreferencesUpdate {
   skyTheme?: SkyTheme;
+  /**
+     * Tips to mark as seen (added to the ones already seen)
+     * @maxItems 10
+     */
+  seenTips?: TipId[];
 }

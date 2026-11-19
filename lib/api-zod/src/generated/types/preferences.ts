@@ -6,7 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { SkyTheme } from './skyTheme';
+import type { TipId } from './tipId';
 
 export interface Preferences {
   skyTheme: SkyTheme;
+  seenTips: TipId[];
 }

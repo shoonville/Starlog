@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutationState, useQueryClient } from "@tanstack/react-query";
 import { differenceInCalendarMonths, differenceInCalendarYears, format, formatDistanceToNowStrict } from "date-fns";
 import {
   getGetSkyQueryKey,
@@ -164,6 +164,39 @@ export function UndoBar() {
         Undo
       </button>
       <span className="undo-drain absolute bottom-0 left-0 h-[2px] w-full bg-primary/50" style={{ animationDuration: `${remaining}ms` }} />
+    </div>
+  );
+}
+
+/* ---------------- Save status ---------------- */
+
+/**
+ * A small, calm pill while a save is being retried (the connection dropped, or the server stumbled).
+ * Saves wait and retry on their own; nothing the user typed is thrown away.
+ */
+export function SaveStatus() {
+  const states = useMutationState({ filters: { status: "pending" }, select: (m) => m.state });
+  const unsaved = states.length > 0;
+  const struggling = states.some((s) => s.isPaused || s.failureCount > 0);
+  // Only show it once a retry has lasted a moment, so a quick blip doesn't flash a message.
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    if (!struggling) { setShow(false); return; }
+    const t = window.setTimeout(() => setShow(true), 600);
+    return () => clearTimeout(t);
+  }, [struggling]);
+  // Leaving with unsaved changes asks first.
+  useEffect(() => {
+    if (!unsaved) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [unsaved]);
+  if (!show) return null;
+  return (
+    <div className="rise sky-pill flex items-center gap-2 whitespace-nowrap rounded-full px-3.5 py-1.5 text-[12.5px] text-foreground/85" role="status" aria-live="polite" data-testid="status-saving">
+      <span className="h-1.5 w-1.5 rounded-full bg-[#f4e4c4]/80 breathe" aria-hidden />
+      Couldn't save. Retrying…
     </div>
   );
 }

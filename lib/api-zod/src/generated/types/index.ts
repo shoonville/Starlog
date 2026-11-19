@@ -58,3 +58,4 @@ export * from './taskRepeat';
 export * from './taskUpdate';
 export * from './taskUpdateRepeat';
 export * from './taskUpdateResult';
+export * from './tipId';

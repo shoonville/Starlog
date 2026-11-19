@@ -21,12 +21,15 @@ import {
   getSessionId,
 } from "../lib/auth";
 import { seedDemoSky } from "../lib/demoSeed";
+import { logger } from "../lib/logger";
 import { GUEST_ID_PREFIX, isGuestUser } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
 
-// Demo guests (and their skies, via cascade) older than this are cleaned up.
-const GUEST_MAX_AGE_MS = 2 * 24 * 60 * 60 * 1000;
+// Demo guests (and their skies, via cascade) older than this are cleaned up: on every demo start
+// and once an hour.
+const GUEST_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const PURGE_EVERY_MS = 60 * 60 * 1000;
 const DEMO_START_WINDOW_MS = 15 * 60 * 1000;
 const DEMO_START_MAX_REQUESTS = 5;
 const MAX_TRACKED_DEMO_CLIENTS = 10_000;
@@ -70,9 +73,8 @@ function limitDemoStarts(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
-router.post("/demo/start", limitDemoStarts, async (req, res) => {
-  const { tz } = StartDemoBody.parse(req.body ?? {});
-  // Opportunistic cleanup of stale guest skies.
+/** Deletes demo guests older than 24 hours, with everything they made (cascade). */
+export async function purgeStaleGuests() {
   await db
     .delete(usersTable)
     .where(
@@ -81,6 +83,15 @@ router.post("/demo/start", limitDemoStarts, async (req, res) => {
         lt(usersTable.createdAt, new Date(Date.now() - GUEST_MAX_AGE_MS)),
       ),
     );
+}
+
+setInterval(() => {
+  purgeStaleGuests().catch((err) => logger.error({ err }, "Couldn't purge old demo skies"));
+}, PURGE_EVERY_MS).unref();
+
+router.post("/demo/start", limitDemoStarts, async (req, res) => {
+  const { tz } = StartDemoBody.parse(req.body ?? {});
+  await purgeStaleGuests();
 
   // If this browser already holds a guest session, drop that guest first.
   const existingSid = getSessionId(req);

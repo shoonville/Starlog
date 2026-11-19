@@ -27,7 +27,7 @@ A calm journal where each thought or topic is a glowing star in your own night-s
 
 ## Architecture decisions
 
-- "Try the demo" creates a temporary guest user (id prefixed `guest-`, `is_guest = true`) with a real session and a freshly seeded sky, so the demo uses the exact same API as signed-in users. Guests older than 2 days are deleted on the next demo start; ending the demo deletes the guest immediately (cascade).
+- "Try the demo" creates a temporary guest user (id prefixed `guest-`, `is_guest = true`) with a real session and a freshly seeded sky, so the demo uses the exact same API as signed-in users. Guests older than 24 hours are purged at startup, hourly, and on each demo start; ending the demo deletes the guest immediately (cascade). Demo start is rate limited (5 per 15 min per IP).
 - A constellation is stored as a name + anchor star; its members are the connected component containing the anchor, computed on the client. Deleting an anchor star re-anchors the name to a neighbour.
 - Connections are stored normalized (`from_star_id < to_star_id`) with a unique pair index.
 - `GET /api/sky` returns the whole sky in one call; notes are loaded per star when its card opens.
@@ -41,6 +41,10 @@ A calm journal where each thought or topic is a glowing star in your own night-s
 - Old pastel label colors are converted to the current palette when the API starts (`artifacts/api-server/src/lib/legacyColors.ts`).
 - Sky theme: saved on the account (`users.sky_theme`, returned in `GET /api/sky`, changed with `PATCH /api/preferences`) and mirrored to localStorage (`starlog:sky-theme`) so the landing/loading screens use it. The demo keeps the choice in localStorage only and never sends the PATCH. Theme layers are painted once into wrapping offscreen tiles (`artifacts/starlog/src/lib/sky-backdrop.ts`) and blitted with the "lighter" blend under the starfield; switching crossfades for 0.9 s.
 - Hidden developer panel: press Shift+D in the sky (or add `?dev` to the URL) to add/remove 300 random "Stress test N" stars and watch fps.
+
+- Security: write requests (anything but GET/HEAD/OPTIONS) must come from the app's own origin (`middlewares/sameOrigin.ts`); login/logout `returnTo` only accepts same-site paths. No X-Frame-Options, because the Replit preview runs the app in an iframe. Zod 3 (used for request validation) has an open memory-exhaustion advisory that only Zod 4 fixes; it is mitigated by the 200kb JSON body limit and `maxItems` on every request array.
+- Saving: mutations retry by default (connection errors keep retrying; 5xx up to 6 times) and a "Couldn't save. Retrying…" pill shows while anything is waiting. Text being written (new notes, note edits, task/quick-add inputs, Today log) is mirrored to localStorage (`starlog:draft:*`, `lib/save-safety.ts`) and cleared only once the server has it.
+- Welcome tour and one-time tips (`components/welcome.tsx`, `lib/onboarding.ts`): seen ids live in localStorage (`starlog:seen-tips`) and, for real accounts, in `users.seen_tips` (returned in `GET /api/sky`, added with `PATCH /api/preferences`). The demo keeps them on-device only. "How it works" in the menus replays the tour.
 
 ## Product
 

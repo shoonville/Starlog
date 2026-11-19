@@ -10,9 +10,14 @@ import { NightBackdrop } from "@/components/night-backdrop";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import SkyPage from "@/pages/sky";
+import { saveRetryDelay, shouldRetrySave } from "@/lib/save-safety";
 
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { refetchOnWindowFocus: false, staleTime: 15_000 } },
+  defaultOptions: {
+    queries: { refetchOnWindowFocus: false, staleTime: 15_000 },
+    // Saves survive a dropped connection: they wait while offline and retry with a growing pause.
+    mutations: { retry: shouldRetrySave, retryDelay: saveRetryDelay },
+  },
 });
 
 function Quiet({ children }: { children: ReactNode }) {

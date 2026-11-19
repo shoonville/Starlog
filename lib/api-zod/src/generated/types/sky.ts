@@ -11,11 +11,14 @@ import type { Label } from './label';
 import type { SkyTheme } from './skyTheme';
 import type { Star } from './star';
 import type { Task } from './task';
+import type { TipId } from './tipId';
 
 export interface Sky {
   /** True when the current session is a guest demo sky (not saved to an account) */
   isDemo: boolean;
   skyTheme: SkyTheme;
+  /** Welcome tour and one-time tips this account has already seen */
+  seenTips: TipId[];
   labels: Label[];
   stars: Star[];
   connections: Connection[];

@@ -3,6 +3,7 @@ import { format, parseISO } from "date-fns";
 import type { Sky, Star } from "@workspace/api-client-react";
 import { Plus, Sparkles, X } from "lucide-react";
 import type { SkyActions } from "@/hooks/use-sky-actions";
+import { draftKeys, useDraft } from "@/lib/save-safety";
 import { INBOX_TITLE, REPEAT_LABEL, formatDue, parseQuickAdd, resolveDestination, todayStr } from "@/lib/tasks";
 
 /**
@@ -19,7 +20,7 @@ export function QuickAdd({
   onAdded: (star: Star, title: string, isNew: boolean) => void;
   onClose: () => void;
 }) {
-  const [text, setText] = useState("");
+  const [text, setText] = useDraft(draftKeys.quickAdd);
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => { const t = window.setTimeout(() => input.current?.focus(), 60); return () => clearTimeout(t); }, []);
@@ -51,7 +52,7 @@ export function QuickAdd({
     : null;
 
   const data = () => ({ title, dueDate: parsed!.dueDate, priority: parsed!.priority, repeat: parsed!.repeat });
-  const done = (star: Star, isNew = false) => { setBusy(false); onAdded(star, title, isNew); };
+  const done = (star: Star, isNew = false) => { setBusy(false); setText(""); onAdded(star, title, isNew); };
 
   const save = () => {
     if (!parsed || !title || busy) return;

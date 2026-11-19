@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { upgradeLegacyLabelColors } from "./lib/legacyColors";
+import { purgeStaleGuests } from "./routes/demo";
 
 const rawPort = process.env["PORT"];
 
@@ -24,4 +25,5 @@ app.listen(port, (err) => {
 
   logger.info({ port }, "Server listening");
   void upgradeLegacyLabelColors();
+  purgeStaleGuests().catch((err) => logger.error({ err }, "Couldn't purge old demo skies"));
 });

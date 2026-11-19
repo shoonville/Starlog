@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { boolean, index, jsonb, pgTable, timestamp, varchar } from 'drizzle-orm/pg-core';
+import { boolean, index, jsonb, pgTable, text, timestamp, varchar } from 'drizzle-orm/pg-core';
 
 // (IMPORTANT) This table is mandatory for Replit Auth, don't drop it.
 export const sessionsTable = pgTable(
@@ -25,6 +25,8 @@ export const usersTable = pgTable('users', {
   isGuest: boolean('is_guest').notNull().default(false),
   // Chosen sky backdrop (black, milky-way, nebula, midnight, aurora); null means the default black sky.
   skyTheme: varchar('sky_theme', { length: 20 }),
+  // Welcome tour and one-time tips already seen (welcome, star-card, today).
+  seenTips: text('seen_tips').array().notNull().default(sql`'{}'::text[]`),
   createdAt: timestamp('created_at', { withTimezone: true })
     .notNull()
     .defaultNow(),

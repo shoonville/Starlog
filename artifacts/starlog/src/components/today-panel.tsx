@@ -6,6 +6,7 @@ import { ChevronRight, X } from "lucide-react";
 import type { SkyActions } from "@/hooks/use-sky-actions";
 import { DEFAULT_STAR } from "@/lib/sky";
 import { DAILY_LOG_TITLE, todayStr } from "@/lib/tasks";
+import { draftKeys, useDraft } from "@/lib/save-safety";
 import { TaskCheck, TaskMeta } from "@/components/task-list";
 
 /** Open tasks due today or earlier. */
@@ -14,7 +15,7 @@ export function dueTasks(tasks: Task[], today = todayStr()) {
 }
 
 export function TodayPanel({
-  sky, actions, onPickTask, onClose, ensureStar, handle,
+  sky, actions, onPickTask, onClose, ensureStar, handle, tip,
 }: {
   sky: Sky;
   actions: SkyActions;
@@ -23,6 +24,8 @@ export function TodayPanel({
   ensureStar: (title: string, then: (s: Star) => void) => void;
   /** Drag handle for the phone sheet. */
   handle?: React.ReactNode;
+  /** A one-time tip shown under the header. */
+  tip?: React.ReactNode;
 }) {
   const today = todayStr();
   // Tasks checked off while the panel is open stay in view (struck through) until it closes.
@@ -46,7 +49,7 @@ export function TodayPanel({
   const colorOf = (s: Star) => (s.labelId == null ? DEFAULT_STAR : sky.labels.find((l) => l.id === s.labelId)?.color ?? DEFAULT_STAR);
 
   const [logOpen, setLogOpen] = useState(false);
-  const [log, setLog] = useState("");
+  const [log, setLog] = useDraft(draftKeys.todayLog);
   const [saved, setSaved] = useState(false);
   const logRef = useRef<HTMLTextAreaElement>(null);
   const saveLog = () => {
@@ -64,7 +67,8 @@ export function TodayPanel({
   return (
     <div className="sheet-panel flex h-full max-h-full flex-col overflow-hidden rounded-[22px]" data-testid="panel-today">
       {handle}
-      <div className="flex items-start gap-3 px-5 pb-2 pt-4 md:px-6 md:pt-5">
+      <div className="relative flex items-start gap-3 px-5 pb-2 pt-4 md:px-6 md:pt-5">
+        {tip}
         <div className="min-w-0 flex-1">
           <h2 className="text-[17px] font-medium tracking-[-0.01em]">Today</h2>
           <p className="text-[12px] text-muted-foreground/80">{format(new Date(), "EEEE, MMMM d")}</p>

@@ -28,7 +28,10 @@ import {
   type TaskUpdate,
 } from "@workspace/api-client-react";
 import { todayStr } from "@/lib/tasks";
+import { createElement } from "react";
 import { toast } from "@/hooks/use-toast";
+import { ToastAction, type ToastActionElement } from "@/components/ui/toast";
+import { clearDraftIfSent, draftKeys } from "@/lib/save-safety";
 import { scheduleDelete } from "@/lib/pending-deletes";
 
 let tempId = -1;
@@ -59,7 +62,8 @@ export function useSkyActions() {
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
   const setTaskOrder = useSetTaskOrder();
-  const createNote = useCreateNote();
+  // The Today panel's "How did today go?" draft is cleared once the server has the note.
+  const createNote = useCreateNote({ mutation: { onSuccess: (_n, v) => clearDraftIfSent(draftKeys.todayLog, v.data.body) } });
 
   const recountLabels = (s: Sky): Sky => ({
     ...s,
@@ -201,8 +205,15 @@ export function useSkyActions() {
             onDone?.(t);
           },
           onError: () => {
+            // Nothing typed is lost: the toast keeps the task and can send it again.
             patch((s) => ({ ...s, tasks: s.tasks.filter((x) => x.id !== temp.id) }));
-            fail("add that task")();
+            qc.invalidateQueries({ queryKey: getGetSkyQueryKey() });
+            toast({
+              title: "Couldn't save that task",
+              description: `“${data.title}”`,
+              duration: 30_000,
+              action: createElement(ToastAction, { altText: "Try again", onClick: () => this.addTask(starId, data, onDone) }, "Try again") as unknown as ToastActionElement,
+            });
           },
         },
       );
