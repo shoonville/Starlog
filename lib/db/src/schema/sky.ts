@@ -128,6 +128,8 @@ export const tasksTable = pgTable(
     dueDate: date("due_date", { mode: "string" }),
     priority: varchar("priority", { length: 8 }).notNull().default("normal"),
     repeat: varchar("repeat", { length: 8 }),
+    /** Day of the month a monthly repeat belongs on (so the 31st comes back as the 31st after February). */
+    repeatDay: integer("repeat_day"),
     done: boolean("done").notNull().default(false),
     doneAt: timestamp("done_at", { withTimezone: true }),
     /** Set once a repeating task has created its next instance, so it never does so twice. */

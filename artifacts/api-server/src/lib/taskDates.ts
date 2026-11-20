@@ -21,10 +21,10 @@ function step(day: Date, repeat: Repeat, anchorDay: number) {
  * date, moved forward until it lands after today (so a long-overdue daily task comes
  * back tomorrow, not in the past).
  */
-export function nextDueDate(due: string | null, repeat: Repeat, today?: string) {
+export function nextDueDate(due: string | null, repeat: Repeat, today?: string, anchorDay?: number) {
   const todayStr = today ?? fmt(new Date());
   const start = parse(due ?? todayStr);
-  const anchor = start.getUTCDate();
+  const anchor = anchorDay ?? start.getUTCDate();
   let next = step(start, repeat, anchor);
   const t = parse(todayStr).getTime();
   for (let i = 0; i < 1000 && next.getTime() <= t; i++) next = step(next, repeat, anchor);

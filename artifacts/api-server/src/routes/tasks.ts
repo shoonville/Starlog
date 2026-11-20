@@ -69,6 +69,8 @@ router.patch("/tasks/:taskId", async (req, res) => {
   if (body.dueDate !== undefined) patch.dueDate = body.dueDate;
   if (body.priority !== undefined) patch.priority = body.priority;
   if (body.repeat !== undefined) patch.repeat = body.repeat;
+  // A date picked by hand sets a new day for monthly repeats.
+  if (body.dueDate !== undefined && body.dueDate !== existing.dueDate) patch.repeatDay = null;
   if (body.done !== undefined && body.done !== existing.done) {
     patch.done = body.done;
     patch.doneAt = body.done ? new Date() : null;
@@ -85,13 +87,16 @@ router.patch("/tasks/:taskId", async (req, res) => {
     let next: TaskRow | null = null;
     if (spawn) {
       const due = patch.dueDate !== undefined ? patch.dueDate : existing.dueDate;
+      const keptDay = patch.repeatDay !== undefined ? patch.repeatDay : existing.repeatDay;
+      const anchorDay = keptDay ?? (due ? Number(due.slice(8, 10)) : null);
       const [row] = await tx
         .insert(tasksTable)
         .values({
           userId,
           starId: existing.starId,
           title: task!.title,
-          dueDate: nextDueDate(due ?? null, repeat as "daily" | "weekly" | "monthly", body.today),
+          dueDate: nextDueDate(due ?? null, repeat as "daily" | "weekly" | "monthly", body.today, anchorDay ?? undefined),
+          repeatDay: anchorDay,
           priority: task!.priority,
           repeat,
           position: existing.position,

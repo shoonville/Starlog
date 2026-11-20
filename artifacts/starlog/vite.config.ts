@@ -63,6 +63,16 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, 'dist/public'),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // Libraries change rarely, so they get their own files that stay cached between app updates.
+        manualChunks: {
+          react: ['react', 'react-dom'],
+          motion: ['framer-motion'],
+          query: ['@tanstack/react-query'],
+        },
+      },
+    },
   },
   server: {
     port,

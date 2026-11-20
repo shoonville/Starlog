@@ -9,7 +9,7 @@ import JournalCard, { type CardTab } from "@/components/journal-card";
 import { BottomSheet, useKeyboardInset, useSheetDrag, type SheetHeight } from "@/components/bottom-sheet";
 import { TodayPanel, dueTasks } from "@/components/today-panel";
 import { QuickAdd } from "@/components/quick-add";
-import { findStarByTitle, isOverdue, todayStr } from "@/lib/tasks";
+import { findStarByTitle, isOverdue, todayStr, useToday } from "@/lib/tasks";
 import { CompactLegend, Legend, SearchPanel, StatsReadout, Timeline } from "@/components/sky-overlays";
 import { Wordmark } from "@/components/wordmark";
 import { DevPanel, OnThisDay, RecentPanel, SaveStatus, UndoBar } from "@/components/sky-extras";
@@ -243,7 +243,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
   useEffect(() => { if (selectedId == null) setSheetHeight("full"); }, [selectedId]);
 
   // Tasks: progress ring per star, and what's due for the Today button.
-  const today = todayStr();
+  const today = useToday();
   const taskProgress = useMemo(() => {
     const tally = new Map<number, [number, number]>();
     for (const t of sky.tasks) {

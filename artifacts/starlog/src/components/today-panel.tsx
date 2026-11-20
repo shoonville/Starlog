@@ -5,7 +5,7 @@ import type { Sky, Star, Task } from "@workspace/api-client-react";
 import { ChevronRight, X } from "lucide-react";
 import type { SkyActions } from "@/hooks/use-sky-actions";
 import { DEFAULT_STAR } from "@/lib/sky";
-import { DAILY_LOG_TITLE, todayStr } from "@/lib/tasks";
+import { DAILY_LOG_TITLE, todayStr, useToday } from "@/lib/tasks";
 import { draftKeys, useDraft } from "@/lib/save-safety";
 import { TaskCheck, TaskMeta } from "@/components/task-list";
 
@@ -29,7 +29,7 @@ export function TodayPanel({
   /** On This Day entry point, shown beside the date heading. */
   onThisDay?: React.ReactNode;
 }) {
-  const today = todayStr();
+  const today = useToday();
   // Tasks checked off while the panel is open stay in view (struck through) until it closes.
   const [kept, setKept] = useState<Set<number>>(() => new Set());
   const shown = useMemo(

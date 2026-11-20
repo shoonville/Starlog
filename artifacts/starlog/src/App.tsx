@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { Suspense, lazy, type ReactNode } from "react";
 import { MutationCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ApiError } from "@workspace/api-client-react";
 import { toast } from "@/hooks/use-toast";
@@ -11,7 +11,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { NightBackdrop } from "@/components/night-backdrop";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
-import SkyPage from "@/pages/sky";
+// The sky (the biggest part of the app) loads separately, so the landing page opens quickly.
+const SkyPage = lazy(() => import("@/pages/sky"));
 import { saveRetryDelay, shouldRetrySave } from "@/lib/save-safety";
 
 // A save that gave up is never silent. The text itself stays backed up on this device.
@@ -55,6 +56,13 @@ function Quiet({ children }: { children: ReactNode }) {
   );
 }
 
+const gathering = (
+  <Quiet>
+    <div className="mx-auto mb-6 h-2 w-2 rounded-full bg-[#f4e4c4] shadow-[0_0_24px_6px_rgba(244,228,196,0.35)] breathe" />
+    <p className="text-[13px] tracking-wide text-muted-foreground breathe" data-testid="status-loading">Gathering your stars</p>
+  </Quiet>
+);
+
 function Home() {
   const auth = useAuth();
   const sky = useGetSky({ query: { queryKey: getGetSkyQueryKey(), retry: false } });
@@ -67,7 +75,7 @@ function Home() {
       </Quiet>
     );
   }
-  if (sky.data) return <SkyPage sky={sky.data} />;
+  if (sky.data) return <Suspense fallback={gathering}><SkyPage sky={sky.data} /></Suspense>;
   if (auth.user) {
     return (
       <Quiet>

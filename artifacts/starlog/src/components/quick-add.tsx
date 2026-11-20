@@ -4,7 +4,7 @@ import type { Sky, Star } from "@workspace/api-client-react";
 import { Plus, Sparkles, X } from "lucide-react";
 import type { SkyActions } from "@/hooks/use-sky-actions";
 import { draftKeys, useDraft } from "@/lib/save-safety";
-import { INBOX_TITLE, REPEAT_LABEL, formatDue, parseQuickAdd, resolveDestination, todayStr } from "@/lib/tasks";
+import { INBOX_TITLE, REPEAT_LABEL, formatDue, parseQuickAdd, resolveDestination, todayStr, useToday } from "@/lib/tasks";
 
 /**
  * One input for adding a task anywhere: "Call dentist Friday #Personal" shows
@@ -28,7 +28,7 @@ export function QuickAdd({
   const parsed = useMemo(() => (text.trim() ? parseQuickAdd(text) : null), [text]);
   const dest = useMemo(() => resolveDestination(parsed?.tag ?? null, sky.stars, sky.labels), [parsed?.tag, sky.stars, sky.labels]);
   const title = parsed?.title || "";
-  const today = todayStr();
+  const today = useToday();
 
   const where =
     dest.kind === "star"

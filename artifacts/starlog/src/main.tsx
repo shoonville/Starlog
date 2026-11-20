@@ -15,3 +15,10 @@ createRoot(document.getElementById('root')!, {
     <App />
   </ErrorBoundary>,
 );
+
+// Lets the app open instantly and work offline (production only, so development stays fresh).
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {});
+  });
+}

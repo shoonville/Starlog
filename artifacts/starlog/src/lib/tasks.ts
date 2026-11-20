@@ -1,9 +1,37 @@
+import { useEffect, useState } from "react";
 import { addDays, addMonths, differenceInCalendarDays, format, parseISO } from "date-fns";
 import type { Label, Star, Task, TaskPriority, TaskRepeat } from "@workspace/api-client-react";
 
 /** Today's calendar day in the viewer's own time zone, as YYYY-MM-DD. */
 export function todayStr(now = new Date()) {
   return format(now, "yyyy-MM-dd");
+}
+
+/**
+ * Today's date that moves on by itself: just after midnight, and whenever the app comes back
+ * to the front (a phone left on the lock screen overnight wakes up on the right day).
+ */
+export function useToday() {
+  const [today, setToday] = useState(todayStr);
+  useEffect(() => {
+    const check = () => setToday(todayStr());
+    let timer = 0;
+    const schedule = () => {
+      const now = new Date();
+      const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 5);
+      timer = window.setTimeout(() => { check(); schedule(); }, next.getTime() - now.getTime());
+    };
+    schedule();
+    const onVisible = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", check);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", check);
+    };
+  }, []);
+  return today;
 }
 
 export const isOverdue = (t: Task, today = todayStr()) => !t.done && t.dueDate != null && t.dueDate < today;

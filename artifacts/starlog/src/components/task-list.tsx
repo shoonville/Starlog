@@ -3,7 +3,7 @@ import { AnimatePresence, Reorder, motion, useDragControls } from "framer-motion
 import type { Star, Task, TaskPriority, TaskRepeat } from "@workspace/api-client-react";
 import { ArrowDownWideNarrow, CalendarDays, Check, ChevronRight, Repeat2, Trash2, X } from "lucide-react";
 import type { SkyActions } from "@/hooks/use-sky-actions";
-import { REPEAT_LABEL, formatDue, isOverdue, orderedOpenTasks, parseQuickAdd, todayStr } from "@/lib/tasks";
+import { REPEAT_LABEL, formatDue, isOverdue, orderedOpenTasks, parseQuickAdd, todayStr, useToday } from "@/lib/tasks";
 import { hexToRgb } from "@/lib/sky";
 import { draftKeys, useDraft } from "@/lib/save-safety";
 import { highlight, matchesQuery } from "@/lib/note-format";
@@ -228,7 +228,7 @@ export function TaskList({
   star: Star; tasks: Task[]; color: string; actions: SkyActions; narrow: boolean;
   openTaskId: number | null; onOpenTask: (id: number | null) => void; query?: string;
 }) {
-  const today = todayStr();
+  const today = useToday();
   const sorted = useMemo(() => orderedOpenTasks(tasks, star.taskOrder), [tasks, star.taskOrder]);
   const done = useMemo(() => tasks.filter((t) => t.done).sort((a, b) => ((b.doneAt ?? "") > (a.doneAt ?? "") ? 1 : -1)), [tasks]);
   const [order, setOrder] = useState(sorted);
@@ -324,7 +324,7 @@ export function TaskList({
 export function TaskComposer({ starId, actions }: { starId: number; actions: SkyActions }) {
   const [text, setText] = useDraft(draftKeys.task(starId));
   const parsed = useMemo(() => (text.trim() ? parseQuickAdd(text) : null), [text]);
-  const today = todayStr();
+  const today = useToday();
   const submit = () => {
     if (!parsed) return;
     const title = (parsed.title || text.trim()) + (parsed.tag ? ` #${parsed.tag}` : "");
