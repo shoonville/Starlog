@@ -13,7 +13,7 @@ import {
   type Sky,
   type Star,
 } from "@workspace/api-client-react";
-import { Bold, Check, ChevronDown, Copy, Italic, Link2, List, MoreHorizontal, Orbit, Palette, Pencil, Pin, PinOff, Plus, Search, Trash2, X } from "lucide-react";
+import { Bold, Check, ChevronDown, Copy, Italic, Link2, List, ListChecks, MoreHorizontal, Orbit, Palette, Pencil, Pin, PinOff, Plus, Search, Trash2, X } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { DEFAULT_STAR, PALETTE, constellationTint, formatStamp, formatStampShort, type ConstellationView } from "@/lib/sky";
 import { TaskComposer, TaskList } from "@/components/task-list";
-import { FormattedNote, applyFormat, formatKeyDown, matchesQuery, plainNote, wordCount, type FormatKind } from "@/lib/note-format";
+import { FormattedNote, applyFormat, toggleCheckLine, formatKeyDown, matchesQuery, plainNote, wordCount, type FormatKind } from "@/lib/note-format";
 import { clearDraftIfSent, draftKeys, readDraft, useDraft, writeDraft } from "@/lib/save-safety";
 import { toast } from "@/hooks/use-toast";
 
@@ -72,6 +72,7 @@ function FormatBar({ target, setValue, words, children }: { target: React.RefObj
       {btn("bold", "Bold", <Bold className="h-3.5 w-3.5" />, `${mod}+B`)}
       {btn("italic", "Italic", <Italic className="h-3.5 w-3.5" />, `${mod}+I`)}
       {btn("bullet", "Bullet list", <List className="h-3.5 w-3.5" />)}
+      {btn("check", "Checklist", <ListChecks className="h-3.5 w-3.5" />)}
       <span className="ml-2 text-[11px] tabular-nums text-muted-foreground/60" data-testid="text-word-count">
         {words} {words === 1 ? "word" : "words"}
       </span>
@@ -319,7 +320,7 @@ function NoteRow({ note, focused, onDelete, onSaved, onTogglePin, query }: {
           title="Click to edit"
           data-testid={`text-note-${note.id}`}
         >
-          {body.trim() ? <FormattedNote body={body} query={query} /> : <span className="text-muted-foreground/60">Empty note</span>}
+          {body.trim() ? <FormattedNote body={body} query={query} onToggleCheck={(line) => change(toggleCheckLine(body, line))} /> : <span className="text-muted-foreground/60">Empty note</span>}
         </div>
       )}
     </li>

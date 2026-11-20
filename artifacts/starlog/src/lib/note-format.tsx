@@ -7,6 +7,19 @@ import { Fragment, type ReactNode } from "react";
  */
 
 const BULLET = /^\s*[-*]\s+/;
+/** "- [ ] thing" or "- [x] thing": a checklist item. */
+const CHECK = /^\s*[-*]\s+\[( |x|X)\]\s?/;
+
+/** Ticks or unticks the checklist item on line `index` of a note. */
+export function toggleCheckLine(body: string, index: number) {
+  const lines = body.split("\n");
+  const ln = lines[index];
+  if (ln == null) return body;
+  const m = ln.match(CHECK);
+  if (!m) return body;
+  lines[index] = ln.replace(/\[( |x|X)\]/, m[1] === " " ? "[x]" : "[ ]");
+  return lines.join("\n");
+}
 const INLINE = /(\*\*[^*\n]+?\*\*|\*[^*\s\n](?:[^*\n]*?[^*\s\n])?\*)/g;
 
 /** True when `text` contains the (trimmed, case-insensitive) search query. */
@@ -56,22 +69,45 @@ export function plainNote(body: string) {
   return body.replace(/\*\*([^*\n]+?)\*\*/g, "$1").replace(/\*([^*\s\n](?:[^*\n]*?[^*\s\n])?)\*/g, "$1").replace(/^\s*\*\s+/gm, "- ");
 }
 
-export function FormattedNote({ body, query }: { body: string; query?: string }) {
+export function FormattedNote({ body, query, onToggleCheck }: { body: string; query?: string; onToggleCheck?: (line: number) => void }) {
   const lines = body.split("\n");
   const blocks: ReactNode[] = [];
-  let list: string[] = [];
+  let list: Array<{ text: string; line: number; check?: boolean }> = [];
   let para: string[] = [];
   const flushList = () => {
     if (!list.length) return;
     const k = blocks.length;
     blocks.push(
       <ul key={`ul-${k}`} className="my-1 space-y-0.5 pl-1">
-        {list.map((li, j) => (
-          <li key={j} className="relative pl-4">
-            <span className="absolute left-0.5 top-[0.7em] h-[3px] w-[3px] rounded-full bg-current opacity-60" />
-            {inline(li, `li-${k}-${j}`, query)}
-          </li>
-        ))}
+        {list.map((li, j) =>
+          li.check === undefined ? (
+            <li key={j} className="relative pl-4">
+              <span className="absolute left-0.5 top-[0.7em] h-[3px] w-[3px] rounded-full bg-current opacity-60" />
+              {inline(li.text, `li-${k}-${j}`, query)}
+            </li>
+          ) : (
+            <li key={j} className="relative flex items-start gap-2.5 py-0.5">
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={li.check}
+                aria-label={li.check ? "Untick" : "Tick"}
+                onClick={(e) => { e.stopPropagation(); onToggleCheck?.(li.line); }}
+                className="-m-2 flex shrink-0 items-center justify-center p-2"
+                data-testid="note-check"
+              >
+                <span className={`flex h-[17px] w-[17px] items-center justify-center rounded-full border transition-all duration-300 ${li.check ? "border-primary bg-primary shadow-[0_0_10px_1px_hsl(39_84%_69%/0.45)]" : "border-primary/60"}`}>
+                  {li.check && (
+                    <svg viewBox="0 0 12 12" className="h-2.5 w-2.5 text-primary-foreground" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.2l2.2 2.2 4.8-4.8" /></svg>
+                  )}
+                </span>
+              </button>
+              <span className={`min-w-0 transition-colors duration-300 ${li.check ? "text-muted-foreground/60 line-through decoration-white/25" : ""}`}>
+                {inline(li.text, `li-${k}-${j}`, query)}
+              </span>
+            </li>
+          ),
+        )}
       </ul>,
     );
     list = [];
@@ -91,10 +127,14 @@ export function FormattedNote({ body, query }: { body: string; query?: string })
     );
     para = [];
   };
-  for (const ln of lines) {
-    if (BULLET.test(ln)) {
+  lines.forEach((ln, line) => {
+    const cm = ln.match(CHECK);
+    if (cm) {
       flushPara();
-      list.push(ln.replace(BULLET, ""));
+      list.push({ text: ln.replace(CHECK, ""), line, check: cm[1] !== " " });
+    } else if (BULLET.test(ln)) {
+      flushPara();
+      list.push({ text: ln.replace(BULLET, ""), line });
     } else if (ln.trim() === "") {
       flushList();
       flushPara();
@@ -103,14 +143,14 @@ export function FormattedNote({ body, query }: { body: string; query?: string })
       flushList();
       para.push(ln);
     }
-  }
+  });
   flushList();
   flushPara();
   return <>{blocks}</>;
 }
 
 export function wordCount(text: string) {
-  const plain = text.replace(/\*+/g, " ").replace(/^\s*[-*]\s+/gm, " ");
+  const plain = text.replace(/^\s*[-*]\s+\[( |x|X)\]/gm, " ").replace(/\*+/g, " ").replace(/^\s*[-*]\s+/gm, " ");
   const words = plain.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu);
   return words ? words.length : 0;
 }
@@ -131,12 +171,34 @@ function replaceRange(el: HTMLTextAreaElement, start: number, end: number, text:
   }
 }
 
-export type FormatKind = "bold" | "italic" | "bullet";
+export type FormatKind = "bold" | "italic" | "bullet" | "check";
 
 export function applyFormat(el: HTMLTextAreaElement, kind: FormatKind, setValue: (v: string) => void) {
   const v = el.value;
   const s = el.selectionStart;
   const e = el.selectionEnd;
+
+  if (kind === "check") {
+    const ls = v.lastIndexOf("\n", s - 1) + 1;
+    let le = v.indexOf("\n", e > s && v[e - 1] === "\n" ? e - 1 : e);
+    if (le === -1) le = v.length;
+    const block = v.slice(ls, le).split("\n");
+    const allChecks = block.every((l) => CHECK.test(l) || l.trim() === "");
+    const next = block
+      .map((l) =>
+        allChecks ? l.replace(CHECK, "")
+        : l.trim() === "" && block.length > 1 ? l
+        : CHECK.test(l) ? l
+        : `- [ ] ${l.replace(BULLET, "")}`,
+      )
+      .join("\n");
+    replaceRange(el, ls, le, next, setValue);
+    requestAnimationFrame(() => {
+      const caret = ls + next.length;
+      el.setSelectionRange(s === e ? caret : ls, caret);
+    });
+    return;
+  }
 
   if (kind === "bullet") {
     const ls = v.lastIndexOf("\n", s - 1) + 1;
@@ -178,6 +240,12 @@ export function handleListEnter(el: HTMLTextAreaElement, setValue: (v: string) =
   if (s !== el.selectionEnd) return false;
   const ls = v.lastIndexOf("\n", s - 1) + 1;
   const line = v.slice(ls, s);
+  const c = line.match(/^(\s*)([-*])\s+\[( |x|X)\]\s?/);
+  if (c) {
+    if (line.trim() === line.match(CHECK)![0].trim()) { replaceRange(el, ls, s, "", setValue); return true; }
+    replaceRange(el, s, s, `\n${c[1]}${c[2]} [ ] `, setValue);
+    return true;
+  }
   const m = line.match(/^(\s*)([-*])\s+/);
   if (!m) return false;
   if (line.trim() === m[2]) {

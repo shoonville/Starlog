@@ -22,6 +22,8 @@ type Props = {
   cutoff: number | null;
   /** Share of a star's tasks that are done (0..1), only for stars that have tasks. */
   taskProgress?: Map<number, number>;
+  /** Stars with an open task due today ("today") or already late ("overdue"): they breathe softly. */
+  dueGlow?: Map<number, "today" | "overdue">;
   onStarTap: (id: number) => void;
   /** Touch: the finger rested on a star for about half a second without moving. */
   onStarHold?: (id: number) => void;
@@ -859,6 +861,25 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
           ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.arc(q.x, q.y, vr + (p.taskProgress?.has(st.id) ? 13 : 12) + Math.sin(t * 1.4) * 1.6, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        // Something due here: a slow, breathing halo (gold for today, warm amber-red when late).
+        const due = p.dueGlow?.get(st.id);
+        if (due && a.sel < 0.6) {
+          const pulse = 0.5 + 0.5 * Math.sin(t * 2.1 + st.id * 1.7);
+          const gc = due === "overdue" ? "255,128,96" : "255,204,102";
+          const base = vr + (p.taskProgress?.has(st.id) ? 9 : 7);
+          ctx.setLineDash([]);
+          ctx.strokeStyle = `rgb(${gc})`;
+          ctx.globalAlpha = (0.08 + 0.1 * pulse) * a.a * a.dim * (1 - a.sel);
+          ctx.lineWidth = 5;
+          ctx.beginPath();
+          ctx.arc(q.x, q.y, base + 3 + pulse * 3, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = (0.3 + 0.35 * pulse) * a.a * a.dim * (1 - a.sel);
+          ctx.lineWidth = 1.1;
+          ctx.beginPath();
+          ctx.arc(q.x, q.y, base + 3 + pulse * 3, 0, Math.PI * 2);
           ctx.stroke();
         }
         if (a.hover > 0.02 && !p.connectMode && !s.link && s.g.kind === "none") {

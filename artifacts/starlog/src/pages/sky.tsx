@@ -244,6 +244,15 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
 
   // Tasks: progress ring per star, and what's due for the Today button.
   const today = useToday();
+  const dueGlow = useMemo(() => {
+    const m = new Map<number, "today" | "overdue">();
+    for (const t of sky.tasks) {
+      if (t.done || t.id <= 0 || t.dueDate == null || t.dueDate > today) continue;
+      if (t.dueDate < today) m.set(t.starId, "overdue");
+      else if (!m.has(t.starId)) m.set(t.starId, "today");
+    }
+    return m;
+  }, [sky.tasks, today]);
   const taskProgress = useMemo(() => {
     const tally = new Map<number, [number, number]>();
     for (const t of sky.tasks) {
@@ -458,6 +467,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
         connectFrom={connectFrom}
         cutoff={cutoff}
         taskProgress={taskProgress}
+        dueGlow={dueGlow}
         onStarTap={onStarTap}
         onStarHold={onStarHold}
         onBackground={() => {

@@ -36,6 +36,7 @@ export function TodayPanel({
     () => sky.tasks.filter((t) => t.id > 0 && t.dueDate != null && t.dueDate <= today && (!t.done || kept.has(t.id))),
     [sky.tasks, today, kept],
   );
+  const late = useMemo(() => shown.filter((t) => !t.done && t.dueDate! < today), [shown, today]);
   const groups = useMemo(() => {
     const byStar = new Map<number, Task[]>();
     for (const t of shown) byStar.set(t.starId, [...(byStar.get(t.starId) ?? []), t]);
@@ -82,6 +83,19 @@ export function TodayPanel({
       </div>
 
       <div className="thin-scroll min-h-0 flex-1 overflow-y-auto px-5 pb-3 md:px-6">
+        {late.length > 0 && (
+          <button
+            onClick={() => {
+              setKept((k) => { const n = new Set(k); late.forEach((t) => n.add(t.id)); return n; });
+              late.forEach((t) => actions.editTask(t.id, { dueDate: today }));
+            }}
+            className="-mx-1 mb-1 flex min-h-11 items-center gap-2 rounded-lg px-1 text-[12.5px] text-[hsl(15_80%_72%)] transition-colors hover:text-[hsl(15_85%_80%)]"
+            data-testid="button-move-overdue"
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-current shadow-[0_0_8px_1px_currentColor]" />
+            Move {late.length === 1 ? "1 late task" : `${late.length} late tasks`} to today
+          </button>
+        )}
         {groups.length === 0 ? (
           <div className="flex flex-col items-center py-10 text-center" data-testid="text-nothing-due">
             <span className="mb-4 h-1.5 w-1.5 rounded-full bg-[#ffe2ae] shadow-[0_0_16px_4px_rgba(255,226,174,0.25)]" />
