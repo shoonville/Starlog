@@ -16,15 +16,16 @@ export function NightBackdrop({ constellation = false }: { constellation?: boole
     field.current = bg;
     let raf = 0;
     const start = performance.now();
+    // A wide, low constellation that spans the top of the screen
     const pts = [
-      { x: 0.62, y: 0.3, r: 5, c: "#FFC23D" },
-      { x: 0.71, y: 0.22, r: 3.5, c: "#A06BFF" },
-      { x: 0.8, y: 0.34, r: 4.2, c: "#FF5C9E" },
-      { x: 0.76, y: 0.48, r: 3, c: "#4D8DFF" },
-      { x: 0.88, y: 0.44, r: 3.4, c: "#FFE2AE" },
-      { x: 0.68, y: 0.6, r: 2.6, c: "#34D399" },
+      { x: 0.14, y: 0.27, r: 5, c: "#FFC23D" },
+      { x: 0.33, y: 0.17, r: 3.5, c: "#A06BFF" },
+      { x: 0.52, y: 0.28, r: 4.2, c: "#FF5C9E" },
+      { x: 0.71, y: 0.2, r: 3.4, c: "#4D8DFF" },
+      { x: 0.87, y: 0.31, r: 3, c: "#FFE2AE" },
+      { x: 0.6, y: 0.4, r: 2.6, c: "#34D399" },
     ];
-    const edges = [[0, 1], [1, 2], [2, 3], [2, 4], [3, 5]];
+    const edges = [[0, 1], [1, 2], [2, 3], [3, 4], [2, 5]];
     const loop = (now: number) => {
       raf = requestAnimationFrame(loop);
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -36,7 +37,7 @@ export function NightBackdrop({ constellation = false }: { constellation?: boole
       bg.draw(ctx, w, h, dpr, t, drift * 4, drift * 1.5);
       if (!constellation) return;
       const narrow = w < 768;
-      const P = pts.map((p) => ({ ...p, x: (narrow ? p.x * 1.2 - 0.3 : p.x) * w, y: (narrow ? p.y * 0.55 + 0.02 : p.y) * h }));
+      const P = pts.map((p) => ({ ...p, x: (0.5 + (p.x - 0.5) * (narrow ? 1 : 0.55)) * w, y: p.y * h }));
       const el = (now - start) / 1000;
       edges.forEach(([a, b], i) => {
         const prog = Math.max(0, Math.min(1, (el - 1.2 - i * 0.7) / 1.6));
