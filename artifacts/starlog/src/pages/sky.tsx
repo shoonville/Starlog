@@ -12,7 +12,7 @@ import { QuickAdd } from "@/components/quick-add";
 import { findStarByTitle, isOverdue, todayStr } from "@/lib/tasks";
 import { CompactLegend, Legend, SearchPanel, StatsReadout, Timeline } from "@/components/sky-overlays";
 import { Wordmark } from "@/components/wordmark";
-import { DevPanel, RecentPanel, SaveStatus, UndoBar } from "@/components/sky-extras";
+import { DevPanel, OnThisDay, RecentPanel, SaveStatus, UndoBar } from "@/components/sky-extras";
 import { undoDelete, usePendingDeletes } from "@/lib/pending-deletes";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
