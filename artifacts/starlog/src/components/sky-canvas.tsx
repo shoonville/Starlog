@@ -186,6 +186,9 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
     const s = S.current;
     let raf = 0;
     let last = performance.now();
+    // While a star's card is open the sky is mostly covered: once the camera settles,
+    // draw it at a gentle ~25fps so typing in the card stays smooth and the battery lasts.
+    let selKey: number | null = null, selAt = 0, lastDraw = 0;
 
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
@@ -567,6 +570,12 @@ const SkyCanvas = forwardRef<SkyCanvasHandle, Props>(function SkyCanvas(props, r
 
     const loop = (now: number) => {
       raf = requestAnimationFrame(loop);
+      const sel = P.current.selectedId;
+      if (sel != null) {
+        if (selKey !== sel) { selKey = sel; selAt = now; }
+        if (now - selAt > 1500 && now - lastDraw < 40) return;
+      } else selKey = null;
+      lastDraw = now;
       if (!s.initialized && s.w > 0 && s.h > 0) {
         s.initialized = true;
         fitView();

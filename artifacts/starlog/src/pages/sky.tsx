@@ -12,7 +12,7 @@ import { QuickAdd } from "@/components/quick-add";
 import { findStarByTitle, isOverdue, todayStr } from "@/lib/tasks";
 import { CompactLegend, Legend, SearchPanel, StatsReadout, Timeline } from "@/components/sky-overlays";
 import { Wordmark } from "@/components/wordmark";
-import { DevPanel, OnThisDay, RecentPanel, SaveStatus, UndoBar } from "@/components/sky-extras";
+import { DevPanel, RecentPanel, SaveStatus, UndoBar } from "@/components/sky-extras";
 import { undoDelete, usePendingDeletes } from "@/lib/pending-deletes";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -552,17 +552,8 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
         )}
       </AnimatePresence>
 
-      {/* on this day + dev tools (top right) */}
+      {/* dev tools (top right) */}
       <div className={`absolute right-4 top-4 z-20 flex flex-col items-end gap-3 transition-opacity duration-500 md:right-6 md:top-5 ${selected ? "pointer-events-none opacity-0" : "opacity-100"} ${sky.isDemo ? "max-md:top-[6.5rem]" : ""}`}>
-        {!timelineOpen && (
-          <OnThisDay
-            hiddenNoteIds={hiddenNoteIds}
-            onOpen={(n) => {
-              setFocusNote({ starId: n.starId, noteId: n.noteId });
-              focusStar(n.starId);
-            }}
-          />
-        )}
         {devOpen && <DevPanel starCount={sky.stars.length} onClose={() => setDevOpen(false)} />}
       </div>
 
@@ -620,7 +611,7 @@ export default function SkyPage({ sky: rawSky }: { sky: Sky }) {
             <motion.div key="tl" style={{ pointerEvents: "auto" }} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }} transition={{ duration: 0.6, ease: EASE }}>
               <Timeline stars={sky.stars} onCutoff={setCutoff} onClose={() => { setTimelineOpen(false); setCutoff(null); }} />
             </motion.div>
-          ) : (
+          ) : selected && narrow ? null : (
             <motion.div key="tb" className="flex justify-center" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }} transition={{ duration: 0.9, ease: EASE }}>
               <div ref={toolbarRef} style={{ pointerEvents: "auto" }} onPointerEnter={wake} className={`sky-dock flex items-center gap-0.5 rounded-full p-1.5 ${toolbarVisible ? "" : "dock-asleep"}`} data-testid="toolbar">
                 {narrow ? (

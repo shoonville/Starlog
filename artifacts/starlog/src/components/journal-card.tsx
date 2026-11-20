@@ -259,7 +259,7 @@ function NoteRow({ note, focused, onDelete, onSaved, onTogglePin, query }: {
         </span>
         <button
           onClick={onDelete}
-          className="ml-auto rounded-md p-1 text-muted-foreground/60 opacity-0 transition-all duration-300 hover:bg-white/5 hover:text-[hsl(350_62%_74%)] group-hover:opacity-100 focus:opacity-100 max-md:opacity-60"
+          className="ml-auto rounded-md p-1 text-muted-foreground/60 opacity-0 transition-all duration-300 hover:bg-white/5 hover:text-[hsl(350_62%_74%)] group-hover:opacity-100 focus:opacity-100 max-md:hidden"
           aria-label="Delete note"
           data-testid={`button-delete-note-${note.id}`}
         >
