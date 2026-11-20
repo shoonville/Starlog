@@ -204,6 +204,16 @@ router.patch("/notes/:noteId", async (req, res) => {
     return;
   }
 
+  // Edited on another device since this edit began: refuse rather than overwrite the newer text.
+  if (bodyChanged && body.baseEditedAt !== undefined) {
+    const current = existing.editedAt ? existing.editedAt.toISOString() : null;
+    const base = body.baseEditedAt ? new Date(body.baseEditedAt).toISOString() : null;
+    if (current !== base) {
+      res.status(409).json({ error: "Note was changed elsewhere", note: serializeNote(existing) });
+      return;
+    }
+  }
+
   // Pinning isn't writing, so it neither marks the note edited nor bumps the star.
   const [note] = await db
     .update(notesTable)

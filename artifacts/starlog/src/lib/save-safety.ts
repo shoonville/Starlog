@@ -34,6 +34,7 @@ const PREFIX = "starlog:draft:";
 export const draftKeys = {
   note: (starId: number) => `note:${starId}`,
   noteEdit: (noteId: number) => `note-edit:${noteId}`,
+  noteEditBase: (noteId: number) => `note-edit-base:${noteId}`,
   task: (starId: number) => `task:${starId}`,
   quickAdd: "quick-add",
   todayLog: "today-log",

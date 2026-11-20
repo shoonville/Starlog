@@ -1,5 +1,7 @@
 import { type ReactNode } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MutationCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ApiError } from "@workspace/api-client-react";
+import { toast } from "@/hooks/use-toast";
 import { Route, Switch, useLocation, Router as WouterRouter } from "wouter";
 import { getGetSkyQueryKey, useGetSky } from "@workspace/api-client-react";
 import { useAuth } from "@workspace/replit-auth-web";
@@ -12,7 +14,31 @@ import Landing from "@/pages/landing";
 import SkyPage from "@/pages/sky";
 import { saveRetryDelay, shouldRetrySave } from "@/lib/save-safety";
 
+// A save that gave up is never silent. The text itself stays backed up on this device.
+const mutationCache = new MutationCache({
+  onError: (err, _vars, _ctx, mutation) => {
+    if (err instanceof ApiError && err.status === 409 && mutation.meta?.quiet409) return;
+    if (err instanceof ApiError && err.status === 401) {
+      toast({
+        title: "You're signed out",
+        description: "Log in again to keep saving. Anything you wrote is kept on this device until then.",
+        duration: 60_000,
+      });
+      return;
+    }
+    const tooLong = err instanceof ApiError && err.status === 400 && /max|long|too_big/i.test(err.message);
+    toast({
+      title: "Couldn't save",
+      description: tooLong
+        ? "That's longer than a single note can hold. Try splitting it into two notes."
+        : "Your text is kept on this device and will save when you try again.",
+      duration: 20_000,
+    });
+  },
+});
+
 const queryClient = new QueryClient({
+  mutationCache,
   defaultOptions: {
     queries: { refetchOnWindowFocus: false, staleTime: 15_000 },
     // Saves survive a dropped connection: they wait while offline and retry with a growing pause.

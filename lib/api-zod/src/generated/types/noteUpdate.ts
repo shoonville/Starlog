@@ -7,7 +7,12 @@
  */
 
 export interface NoteUpdate {
-  /** @maxLength 20000 */
+  /** @maxLength 100000 */
   body?: string;
   pinned?: boolean;
+  /**
+     * The note's editedAt when this edit began. If the note changed since, the save is refused with 409.
+     * @nullable
+     */
+  baseEditedAt?: string | null;
 }

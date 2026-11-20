@@ -1,3 +1,4 @@
+import { toast } from "@/hooks/use-toast";
 import { useSyncExternalStore } from "react";
 
 /**
@@ -49,7 +50,13 @@ function commit(key: string) {
     entries = entries.filter((x) => x.key !== key);
     emit();
   };
-  send(e).then(done, done);
+  // A delete the server refused (or that never arrived) is undone visibly, never faked.
+  const failed = () => {
+    entries = entries.filter((x) => x.key !== key);
+    emit();
+    toast({ title: "Couldn't delete that", description: "It's back where it was. Try again in a moment." });
+  };
+  send(e).then((res) => (res.ok || res.status === 404 ? done() : failed()), failed);
 }
 
 export function scheduleDelete(

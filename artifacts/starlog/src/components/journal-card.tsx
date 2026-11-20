@@ -8,6 +8,7 @@ import {
   useCreateNote,
   useListStarNotes,
   useUpdateNote,
+  ApiError,
   type Note,
   type Sky,
   type Star,
@@ -27,8 +28,17 @@ import { DEFAULT_STAR, PALETTE, constellationTint, formatStamp, formatStampShort
 import { TaskComposer, TaskList } from "@/components/task-list";
 import { FormattedNote, applyFormat, formatKeyDown, matchesQuery, plainNote, wordCount, type FormatKind } from "@/lib/note-format";
 import { clearDraftIfSent, draftKeys, readDraft, useDraft, writeDraft } from "@/lib/save-safety";
-import { formatDue, orderedOpenTasks } from "@/lib/tasks";
 import { toast } from "@/hooks/use-toast";
+
+const NO_BASE = "none";
+const NOTE_MAX = 100_000;
+const isoOrNull = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString() : null);
+/** The stored starting version of an unsent edit: undefined if none was stored. */
+const readBase = (key: string): string | null | undefined => {
+  const v = readDraft(key);
+  return v ? (v === NO_BASE ? null : v) : undefined;
+};
+import { formatDue, orderedOpenTasks } from "@/lib/tasks";
 import { scheduleDelete, usePendingDeletes } from "@/lib/pending-deletes";
 import type { SkyActions } from "@/hooks/use-sky-actions";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -85,12 +95,28 @@ function NoteRow({ note, focused, onDelete, onSaved, onTogglePin, query }: {
 }) {
   const qc = useQueryClient();
   // Edits are backed up until the server has them, so a failed save or a reload never loses them.
-  const update = useUpdateNote({ mutation: { onSuccess: (_n, v) => { if (v.data.body != null) clearDraftIfSent(draftKeys.noteEdit(v.noteId), v.data.body); } } });
+  const editKey = draftKeys.noteEdit(note.id);
+  const baseKey = draftKeys.noteEditBase(note.id);
+  // Saves to one note go out one at a time, in order, so an older retry can't land after a newer save.
+  const update = useUpdateNote({
+    mutation: {
+      scope: { id: `note-${note.id}` },
+      meta: { quiet409: true },
+      onSuccess: (_n, v) => {
+        if (v.data.body != null) clearDraftIfSent(editKey, v.data.body);
+        if (!readDraft(editKey)) writeDraft(baseKey, "");
+      },
+    },
+  });
+  const copyNote = useCreateNote();
+  // The version of the note this edit started from. The server refuses the save if the note
+  // was changed on another device since, and the text here is kept as a separate note instead.
+  const base = useRef<string | null>(readBase(baseKey) ?? isoOrNull(note.editedAt));
   const mutateRef = useRef(update.mutate);
   mutateRef.current = update.mutate;
   const savedRef = useRef(onSaved);
   savedRef.current = onSaved;
-  const [body, setBody] = useState(() => readDraft(draftKeys.noteEdit(note.id)) || note.body);
+  const [body, setBody] = useState(() => readDraft(editKey) || note.body);
   const [editing, setEditing] = useState(false);
   const [saved, setSaved] = useState(false);
   const timer = useRef<number>(0);
@@ -121,31 +147,65 @@ function NoteRow({ note, focused, onDelete, onSaved, onTogglePin, query }: {
     const v = pending.current;
     if (v == null) return;
     pending.current = null;
+    const notesKey = getListStarNotesQueryKey(note.starId);
     mutateRef.current(
-      { noteId: note.id, data: { body: v } },
+      { noteId: note.id, data: { body: v, baseEditedAt: base.current } },
       {
         onSuccess: (n) => {
-          qc.setQueryData<Note[]>(getListStarNotesQueryKey(note.starId), (old) =>
+          base.current = isoOrNull(n.editedAt);
+          qc.setQueryData<Note[]>(notesKey, (old) =>
             old ? old.map((x) => (x.id === n.id ? n : x)) : old,
           );
           savedRef.current();
           setSaved(true);
           window.setTimeout(() => setSaved(false), 1400);
         },
+        onError: (err) => {
+          if (!(err instanceof ApiError) || err.status !== 409) return;
+          // Changed on another device: keep both. The newer text stays, this one becomes its own note.
+          const theirs = (err.data as { note?: Note } | undefined)?.note;
+          copyNote.mutate(
+            { starId: note.starId, data: { body: v } },
+            {
+              onSuccess: (copy) => {
+                writeDraft(editKey, "");
+                writeDraft(baseKey, "");
+                qc.setQueryData<Note[]>(notesKey, (old) => {
+                  const list = (old ?? []).map((x) => (theirs && x.id === theirs.id ? theirs : x));
+                  return [...list, copy];
+                });
+                if (theirs) { base.current = isoOrNull(theirs.editedAt); setBody(theirs.body); }
+                setEditing(false);
+                toast({
+                  title: "Kept both versions",
+                  description: "This note was changed on another device, so your edit was saved as a new note below it.",
+                });
+              },
+            },
+          );
+        },
       },
     );
   };
   useEffect(() => {
-    // An edit that never reached the server: send it again.
-    const backup = readDraft(draftKeys.noteEdit(note.id));
+    // An edit that never reached the server: send it again (against the version it started from).
+    const backup = readDraft(editKey);
     if (backup && backup !== note.body) { pending.current = backup; flush(); }
-    else if (backup) writeDraft(draftKeys.noteEdit(note.id), "");
+    else if (backup) { writeDraft(editKey, ""); writeDraft(baseKey, ""); }
     return () => { clearTimeout(timer.current); flush(); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Pick up newer text from the server when this note isn't being edited here.
+  useEffect(() => {
+    if (editing || pending.current != null || readDraft(editKey)) return;
+    setBody(note.body);
+    base.current = isoOrNull(note.editedAt);
+  }, [note.body, note.editedAt]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const change = (v: string) => {
     setBody(v);
-    writeDraft(draftKeys.noteEdit(note.id), v);
+    if (!readDraft(editKey)) writeDraft(baseKey, base.current ?? NO_BASE);
+    writeDraft(editKey, v);
     pending.current = v;
     clearTimeout(timer.current);
     timer.current = window.setTimeout(flush, 700);
@@ -234,6 +294,7 @@ function NoteRow({ note, focused, onDelete, onSaved, onTogglePin, query }: {
             ref={taRef}
             rows={1}
             value={body}
+            maxLength={NOTE_MAX}
             onChange={(e) => change(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Escape") { e.stopPropagation(); e.currentTarget.blur(); return; }
@@ -1142,6 +1203,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
             ref={draftRef}
             rows={composerExpanded ? 2 : 1}
             value={draft}
+            maxLength={NOTE_MAX}
             onFocus={() => setComposerOpen(true)}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {

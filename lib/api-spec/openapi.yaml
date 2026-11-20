@@ -1086,15 +1086,19 @@ components:
       properties:
         body:
           type: string
-          maxLength: 20000
+          maxLength: 100000
     NoteUpdate:
       type: object
       properties:
         body:
           type: string
-          maxLength: 20000
+          maxLength: 100000
         pinned:
           type: boolean
+        baseEditedAt:
+          type: string
+          nullable: true
+          description: The note's editedAt when this edit began. If the note changed since, the save is refused with 409.
 
     Label:
       type: object

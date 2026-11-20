@@ -43,7 +43,7 @@ app.use(
   }),
 );
 app.use(cookieParser());
-app.use(express.json({ limit: "200kb" }));
+app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50kb" }));
 app.use(sameOrigin);
 app.use(authMiddleware);

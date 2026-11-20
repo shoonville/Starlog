@@ -365,7 +365,7 @@ export const CreateNoteParams = zod.object({
   "starId": zod.coerce.number().int()
 })
 
-export const createNoteBodyBodyMax = 20000;
+export const createNoteBodyBodyMax = 100000;
 
 
 
@@ -501,13 +501,14 @@ export const UpdateNoteParams = zod.object({
   "noteId": zod.coerce.number().int()
 })
 
-export const updateNoteBodyBodyMax = 20000;
+export const updateNoteBodyBodyMax = 100000;
 
 
 
 export const UpdateNoteBody = zod.object({
   "body": zod.string().max(updateNoteBodyBodyMax).optional(),
-  "pinned": zod.boolean().optional()
+  "pinned": zod.boolean().optional(),
+  "baseEditedAt": zod.string().nullish().describe('The note\'s editedAt when this edit began. If the note changed since, the save is refused with 409.')
 })
 
 export const UpdateNoteResponse = zod.object({
