@@ -25,7 +25,7 @@ export function SkyThemePicker({ value, onChange, className = "" }: { value: Sky
               title={t.name}
               onClick={() => onChange(t.id)}
               className={`relative h-[54px] w-10 shrink-0 overflow-hidden rounded-lg outline-none transition-[box-shadow,transform] duration-300 soft-ease active:scale-95 focus-visible:ring-2 focus-visible:ring-white/40 ${
-                on ? "shadow-[0_0_0_2px_hsl(240_8%_7%),0_0_0_3.5px_hsl(262_62%_78%)]" : "shadow-[0_0_0_1px_hsl(0_0%_100%/0.1)] hover:shadow-[0_0_0_1px_hsl(0_0%_100%/0.28)]"
+                on ? "shadow-[0_0_0_2px_hsl(240_8%_7%),0_0_0_3.5px_hsl(39_84%_74%)]" : "shadow-[0_0_0_1px_hsl(0_0%_100%/0.1)] hover:shadow-[0_0_0_1px_hsl(0_0%_100%/0.28)]"
               }`}
               data-testid={`button-sky-${t.id}`}
             >

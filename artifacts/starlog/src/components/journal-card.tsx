@@ -1222,7 +1222,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
           <AlertDialogFooter>
             <AlertDialogCancel className="rounded-full border-white/10 bg-transparent">Keep it</AlertDialogCancel>
             <AlertDialogAction
-              className="rounded-full bg-[hsl(350_55%_68%)] text-[hsl(260_30%_8%)] hover:bg-[hsl(350_55%_72%)]"
+              className="rounded-full bg-[hsl(350_55%_68%)] text-[hsl(35_45%_9%)] hover:bg-[hsl(350_55%_72%)]"
               onClick={() => { if (confirmNote) removeNote(confirmNote); setConfirmNote(null); }}
               data-testid="button-confirm-delete-note"
             >
@@ -1243,7 +1243,7 @@ export default function JournalCard({ star, sky, roots, actions, onClose, onStar
           <AlertDialogFooter>
             <AlertDialogCancel className="rounded-full border-white/10 bg-transparent">Keep it</AlertDialogCancel>
             <AlertDialogAction
-              className="rounded-full bg-[hsl(350_55%_68%)] text-[hsl(260_30%_8%)] hover:bg-[hsl(350_55%_72%)]"
+              className="rounded-full bg-[hsl(350_55%_68%)] text-[hsl(35_45%_9%)] hover:bg-[hsl(350_55%_72%)]"
               onClick={() => { actions.removeStar(star.id, star.title); onClose(); }}
               data-testid="button-confirm-delete-star"
             >

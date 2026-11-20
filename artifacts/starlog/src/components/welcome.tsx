@@ -139,11 +139,11 @@ export function OnceTip({ text, onDismiss, className = "", testId }: { text: str
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -4, transition: { duration: 0.3 } }}
       transition={{ duration: 0.7, ease: EASE, delay: 0.5 }}
-      className={`absolute z-20 whitespace-nowrap rounded-full bg-[hsl(262_40%_22%)] px-3.5 py-2 text-[12.5px] text-foreground/95 shadow-[0_8px_24px_rgba(0,0,0,0.45),0_0_0_1px_hsl(262_62%_78%/0.25)] ${className}`}
+      className={`absolute z-20 whitespace-nowrap rounded-full bg-[hsl(36_35%_18%)] px-3.5 py-2 text-[12.5px] text-foreground/95 shadow-[0_8px_24px_rgba(0,0,0,0.45),0_0_0_1px_hsl(39_84%_74%/0.25)] ${className}`}
       aria-label={`${text}. Tap to dismiss`}
       data-testid={testId}
     >
-      <span className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-[hsl(262_40%_22%)] shadow-[-1px_-1px_0_0_hsl(262_62%_78%/0.25)]" aria-hidden />
+      <span className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-[hsl(36_35%_18%)] shadow-[-1px_-1px_0_0_hsl(39_84%_74%/0.25)]" aria-hidden />
       {text}
     </motion.button>
   );

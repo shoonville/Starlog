@@ -33,7 +33,7 @@ export default function Landing() {
               and the ones that belong together become constellations you can name.
             </p>
             <div className="mt-10 flex flex-wrap items-center gap-3 rise" style={{ animationDelay: "750ms" }}>
-              <button onClick={login} className="rounded-full bg-primary px-6 py-3 text-[14px] font-medium text-primary-foreground shadow-[0_10px_40px_-12px_hsl(262_62%_70%/0.55)] transition-transform duration-500 soft-ease hover:scale-[1.03]" data-testid="button-login">
+              <button onClick={login} className="rounded-full bg-primary px-6 py-3 text-[14px] font-medium text-primary-foreground shadow-[0_10px_40px_-12px_hsl(39_84%_66%/0.55)] transition-transform duration-500 soft-ease hover:scale-[1.03]" data-testid="button-login">
                 Log in
               </button>
               <button

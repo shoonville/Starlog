@@ -97,15 +97,15 @@
 
   --sidebar-border: 240 5% 16%;
 
-  --sidebar-primary: 262 62% 74%;
+  --sidebar-primary: 39 84% 69%;
 
-  --sidebar-primary-foreground: 260 30% 8%;
+  --sidebar-primary-foreground: 35 45% 9%;
 
-  --sidebar-accent: 262 18% 16%;
+  --sidebar-accent: 38 16% 15%;
 
   --sidebar-accent-foreground: 40 12% 89%;
 
-  --sidebar-ring: 262 62% 74%;
+  --sidebar-ring: 39 84% 69%;
 
   --popover: 240 8% 7%;
 
@@ -113,9 +113,9 @@
 
   --popover-border: 240 5% 17%;
 
-  --primary: 262 62% 74%;
+  --primary: 39 84% 69%;
 
-  --primary-foreground: 260 30% 8%;
+  --primary-foreground: 35 45% 9%;
 
   --secondary: 240 6% 13%;
 
@@ -125,18 +125,18 @@
 
   --muted-foreground: 245 7% 64%;
 
-  --accent: 262 18% 16%;
+  --accent: 38 16% 15%;
 
   --accent-foreground: 40 12% 89%;
 
   --destructive: 350 62% 68%;
 
-  --destructive-foreground: 260 30% 8%;
+  --destructive-foreground: 35 45% 9%;
 
   --input: 240 5% 20%;
-  --ring: 262 62% 74%;
-  --chart-1: 262 62% 74%;
-  --chart-2: 262 60% 78%;
+  --ring: 39 84% 69%;
+  --chart-1: 39 84% 69%;
+  --chart-2: 39 80% 76%;
   --chart-3: 340 60% 80%;
   --chart-4: 150 25% 72%;
   --chart-5: 214 60% 78%;
@@ -246,15 +246,15 @@
 
   --sidebar-border: 240 5% 16%;
 
-  --sidebar-primary: 262 62% 74%;
+  --sidebar-primary: 39 84% 69%;
 
-  --sidebar-primary-foreground: 260 30% 8%;
+  --sidebar-primary-foreground: 35 45% 9%;
 
-  --sidebar-accent: 262 18% 16%;
+  --sidebar-accent: 38 16% 15%;
 
   --sidebar-accent-foreground: 40 12% 89%;
 
-  --sidebar-ring: 262 62% 74%;
+  --sidebar-ring: 39 84% 69%;
 
   --popover: 240 8% 7%;
 
@@ -262,9 +262,9 @@
 
   --popover-border: 240 5% 17%;
 
-  --primary: 262 62% 74%;
+  --primary: 39 84% 69%;
 
-  --primary-foreground: 260 30% 8%;
+  --primary-foreground: 35 45% 9%;
 
   --secondary: 240 6% 13%;
 
@@ -274,19 +274,19 @@
 
   --muted-foreground: 245 7% 64%;
 
-  --accent: 262 18% 16%;
+  --accent: 38 16% 15%;
 
   --accent-foreground: 40 12% 89%;
 
   --destructive: 350 62% 68%;
 
-  --destructive-foreground: 260 30% 8%;
+  --destructive-foreground: 35 45% 9%;
 
   /* Used as the border around inputs. Dark mode: Should be a border that is light enough to have high contrast when rendered on a --card background. More contrast than standard --border */
   --input: 240 5% 20%;
-  --ring: 262 62% 74%;
-  --chart-1: 262 62% 74%;
-  --chart-2: 262 60% 78%;
+  --ring: 39 84% 69%;
+  --chart-1: 39 84% 69%;
+  --chart-2: 39 80% 76%;
   --chart-3: 340 60% 80%;
   --chart-4: 150 25% 72%;
   --chart-5: 214 60% 78%;
@@ -435,7 +435,7 @@
 
 html, body, #root { height: 100%; }
 body { background: #000000; overscroll-behavior: none; font-feature-settings: "cv11", "ss01"; letter-spacing: -0.005em; }
-::selection { background: hsl(262 62% 74% / 0.3); }
+::selection { background: hsl(39 84% 69% / 0.3); }
 
 .sky-glass {
   background: hsl(240 8% 7% / 0.97);
@@ -487,20 +487,20 @@ body { background: #000000; overscroll-behavior: none; font-feature-settings: "c
 .rise { animation: rise 1.4s cubic-bezier(0.22, 1, 0.36, 1) both; }
 input[type=range].sky-range { -webkit-appearance: none; appearance: none; background: transparent; width: 100%; }
 input[type=range].sky-range::-webkit-slider-runnable-track { height: 2px; background: hsl(0 0% 100% / 0.16); border-radius: 2px; }
-input[type=range].sky-range::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -6px; border-radius: 50%; background: hsl(262 62% 78%); box-shadow: 0 0 0 5px hsl(262 62% 74% / 0.16); }
+input[type=range].sky-range::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -6px; border-radius: 50%; background: hsl(39 84% 74%); box-shadow: 0 0 0 5px hsl(39 84% 69% / 0.16); }
 input[type=range].sky-range::-moz-range-track { height: 2px; background: hsl(0 0% 100% / 0.16); }
-input[type=range].sky-range::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: hsl(262 62% 78%); }
+input[type=range].sky-range::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: hsl(39 84% 74%); }
 
 /* "On this day" and other focus highlights on a note */
 .note-glow {
-  background-color: hsl(262 62% 74% / 0.08);
-  box-shadow: 0 0 0 8px hsl(262 62% 74% / 0.08), 0 0 28px 6px hsl(262 62% 74% / 0.08);
+  background-color: hsl(39 84% 69% / 0.08);
+  box-shadow: 0 0 0 8px hsl(39 84% 69% / 0.08), 0 0 28px 6px hsl(39 84% 69% / 0.08);
 }
 
 /* soft pulsing glow for the "On this day" button */
 @keyframes day-glow {
-  0%, 100% { box-shadow: 0 0 10px 1px hsl(262 62% 74% / 0.2); }
-  50% { box-shadow: 0 0 22px 4px hsl(262 62% 74% / 0.36); }
+  0%, 100% { box-shadow: 0 0 10px 1px hsl(39 84% 69% / 0.2); }
+  50% { box-shadow: 0 0 22px 4px hsl(39 84% 69% / 0.36); }
 }
 .day-glow { animation: day-glow 4.2s cubic-bezier(.45,0,.55,1) infinite; }
 
